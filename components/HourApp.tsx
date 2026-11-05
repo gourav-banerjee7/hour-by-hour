@@ -8,16 +8,12 @@ import {
 } from "@/lib/tags";
 import { heuristicPaths } from "@/lib/heuristic";
 import { addDays, entryKey, hl, ymd } from "@/lib/time";
-import { registerWorker } from "@/lib/push-client";
 import Settings from "./Settings";
 import LogDialog from "./LogDialog";
 import ClockLoader from "./ClockLoader";
 
 export type Profile = {
   timezone: string;
-  active_start: number;
-  active_end: number;
-  reminders_enabled: boolean;
 };
 type Props = { mode: "cloud" | "demo"; userId?: string; displayName?: string; initialProfile: Profile };
 type SyncState = "local" | "saving" | "synced" | "error";
@@ -77,7 +73,6 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const [allDay, setAllDay] = useState(false);
   const [sync, setSync] = useState<SyncState>(demo ? "local" : "synced");
   const [loaded, setLoaded] = useState(demo);
-  const [toast, setToast] = useState<string | null>(null);
   const [animIn, setAnimIn] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [minute, setMinute] = useState(() => new Date().getMinutes());
@@ -90,7 +85,6 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const tagsRef = useRef(tags);
   const outbox = useRef<Map<string, Pending>>(new Map());
   const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const lastHour = useRef(new Date().getHours());
   const settingsRef = useRef<HTMLDivElement>(null);
   const idx = useMemo(() => indexTags(tags), [tags]);
 
@@ -237,7 +231,8 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
 
   /* ---------- timezone, worker, deep link, retry ---------- */
   useEffect(() => {
-    registerWorker();
+    // clean up the old push service worker from earlier versions
+    navigator.serviceWorker?.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
     const q = new URLSearchParams(location.search);
     const d = q.get("d"), h = q.get("h");
     if (d && h && /^\d{4}-\d{2}-\d{2}$/.test(d)) { setView(d); setDialog({ day: d, hour: Math.min(23, Math.max(0, +h || 0)) }); history.replaceState(null, "", "/"); }
@@ -253,20 +248,13 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ---------- hourly tick: in-app prompt ---------- */
+  /* ---------- clock tick ---------- */
   useEffect(() => {
     const tick = () => {
       const now = new Date();
       const nt = ymd(now);
       setMinute(now.getMinutes());
       if (nt !== today) setToday(nt);
-      const h = now.getHours();
-      if (h !== lastHour.current) {
-        lastHour.current = h;
-        setView(nt);
-        setToast(`It's ${hl(h)}. What did you do ${hl(h - 1)} to ${hl(h)}?`);
-        setTimeout(() => setToast(null), 12000);
-      }
     };
     const id = setInterval(tick, 15000);
     const vis = () => { if (!document.hidden) tick(); };
@@ -318,20 +306,10 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const saveProfile = async (patch: Partial<Profile>) => {
-    setProfile((p) => ({ ...p, ...patch }));
-    if (sb && userId) await sb.from("profiles").update(patch).eq("user_id", userId);
-  };
-
   const dlgEntry = dialog ? entries[entryKey(dialog.day, dialog.hour)] : undefined;
 
   return (
     <main className="app">
-      <div className={`toast${toast ? " show" : ""}`} role="status">
-        <span>{toast}</span>
-        <button onClick={() => { setToast(null); setView(today); openHour(today, Math.max(0, new Date().getHours() - 1)); }}>Log it</button>
-      </div>
-
       <header className="top">
         <div className="brand">
           <div className="clock" aria-hidden="true">
@@ -351,7 +329,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
         </div>
         {!demo && <Link className="btn pill" href="/insights">Insights</Link>}
         <button className="btn pill" onClick={() => { setShowSettings(true); setTimeout(() => settingsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}>
-          {demo ? "Reminders" : firstName || "Settings"}
+          {demo ? "Settings" : firstName || "Settings"}
         </button>
         <div className="syncpill" data-s={sync}><b /><span>{SYNC_TEXT[sync]}</span></div>
       </header>
@@ -465,7 +443,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       </section>
 
       <div ref={settingsRef}>
-        <Settings open={showSettings} onToggle={setShowSettings} demo={demo} sb={sb} userId={userId} profile={profile} saveProfile={saveProfile} />
+        <Settings open={showSettings} onToggle={setShowSettings} demo={demo} sb={sb} />
       </div>
       <div className="foot">Press L to log the current hour.</div>
 
