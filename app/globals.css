@@ -324,3 +324,69 @@ body.noscroll{overflow:hidden}
 .pitem small{font:500 11.5px var(--mono);color:var(--mute)}
 .pitem p{margin:0;font-size:14.5px;overflow-wrap:anywhere;white-space:pre-wrap}
 @media (max-width:860px){.explorer{grid-template-columns:minmax(0,1fr)}}
+
+/* ---------- reminders + actions ---------- */
+.small{font-size:12.5px}
+.eyebrow.warn{color:var(--fun)}
+.rem{display:flex;flex-direction:column;gap:12px;padding:18px 22px}
+.remhead{display:flex;align-items:center;gap:10px}
+.remhead h2{margin:0;font:800 20px/1 var(--display);letter-spacing:-.02em}
+.rcount{background:var(--ink);color:#fff;border-radius:999px;font:600 12px var(--mono);padding:3px 9px}
+.radd{display:flex;flex-direction:column;gap:10px}
+.radd>input,.ropts input[type=date],.ropts input[type=time],.redit input,.aedit input{font:inherit;font-size:14.5px;border:1.5px solid var(--line);border-radius:12px;background:#fff;padding:10px 13px;color:var(--ink);min-width:0}
+.radd>input:focus,.ropts input:focus,.redit input:focus,.aedit input:focus{border-color:var(--ink);outline:0}
+.ropts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;animation:rise .3s ease both}
+.seg{display:inline-flex;background:var(--bg);border-radius:12px;padding:3px}
+.seg button{padding:7px 12px;border-radius:9px;font-weight:600;font-size:13.5px}
+.seg button.on{background:#fff;box-shadow:0 1px 3px rgba(22,24,47,.15)}
+.rchk{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:600;color:var(--mute);cursor:pointer}
+.rchk input{width:17px;height:17px;accent-color:var(--ink)}
+.rempty{margin:0;font-size:14px}
+.rlist{display:flex;flex-direction:column;gap:10px}
+.rgroup{display:flex;flex-direction:column;gap:2px}
+.rgroup>.eyebrow{margin:4px 0 4px 2px}
+.rrow{display:flex;align-items:center;gap:10px;padding:6px 6px 6px 4px;border-radius:14px;transition:background .15s;animation:rise .3s ease both}
+.rrow:hover{background:var(--bg)}
+.rcheck{width:28px;height:28px;display:grid;place-items:center;flex:none;border-radius:50%}
+.rcheck svg circle{fill:#fff;stroke:var(--faint);stroke-width:1.6;transition:fill .2s,stroke .2s}
+.rcheck svg path{fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:14;stroke-dashoffset:14;transition:stroke-dashoffset .3s ease .05s}
+.rcheck:hover svg circle{stroke:var(--ink)}
+.rrow.done .rcheck svg circle{fill:var(--move);stroke:var(--move)}
+.rrow.done .rcheck svg path{stroke-dashoffset:0}
+.rmain{flex:1;min-width:0;display:flex;flex-direction:column}
+.rtitle{font-weight:600;font-size:15px;overflow-wrap:anywhere}
+.rrow.done .rtitle{text-decoration:line-through;color:var(--faint)}
+.rmeta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font:500 12px var(--mono);color:var(--mute)}
+.rrow.late .rmeta{color:var(--fun)}
+.rcal{display:inline-flex;color:var(--work)}
+.rai{background:var(--sun-soft);border-radius:999px;padding:1px 8px;font-family:var(--body);font-weight:600;color:var(--ink)}
+.ract{font-size:12.5px;font-weight:600;color:var(--mute);padding:6px 9px;border-radius:999px;opacity:0;transition:opacity .15s}
+.rrow:hover .ract,.rrow:focus-within .ract{opacity:1}
+.ract:hover{background:#fff;color:var(--ink)}
+@media (hover:none){.ract{opacity:1}}
+.redit{display:flex;flex-wrap:wrap;gap:8px;padding:8px;background:var(--bg);border-radius:14px}
+.redit input:first-child{flex:1 1 220px}
+.rdone{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.rdone .rgroup{width:100%}
+
+/* actions inside the popup */
+.acts{display:flex;flex-direction:column;gap:10px;margin-top:6px;padding-top:14px;border-top:1px dashed var(--line)}
+.actshead{display:flex;align-items:center;gap:12px}
+.btn.gen{display:inline-flex;align-items:center;gap:8px;background:linear-gradient(120deg,#FFE27A,#FFD23F);box-shadow:0 8px 18px -10px #E8B400;font-weight:700}
+.btn.gen:hover{background:linear-gradient(120deg,#FFDD63,#FFC800)}
+.btn.gen svg{color:var(--ink)}
+.aerr{color:var(--fun);font-size:13px;font-weight:600;margin:0}
+.act{display:flex;gap:12px;padding:12px 14px;border-radius:18px;background:var(--bg);animation:rise .35s cubic-bezier(.2,.9,.3,1) both}
+.act.ok{background:color-mix(in srgb,var(--move) 9%,#fff)}
+.aico{width:34px;height:34px;border-radius:11px;background:#fff;display:grid;place-items:center;flex:none;box-shadow:0 1px 2px rgba(22,24,47,.08)}
+.abody{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.atitle{font-weight:700;font-size:15px;overflow-wrap:anywhere}
+.ameta{font:500 12.5px var(--mono);color:var(--mute)}
+.akind{background:#fff;border-radius:999px;padding:2px 8px;margin-right:6px;font-family:var(--body);font-weight:600;color:var(--ink)}
+.areason{font-size:12.5px;color:var(--mute)}
+.abtns{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px}
+.abtns .btn{display:inline-flex;align-items:center;gap:7px}
+.adone{font-weight:600;font-size:13.5px;color:color-mix(in srgb,var(--move) 80%,#000)}
+.adone a{text-decoration:underline}
+.aedit{display:flex;flex-wrap:wrap;gap:8px}
+.aedit input:first-child{flex:1 1 200px}

@@ -10,8 +10,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
   const user = data.user;
 
   if (user) {
-    const { data: p } = await sb.from("profiles").select("timezone").eq("user_id", user.id).maybeSingle();
-    const profile: Profile = p ?? { timezone: "UTC" };
+    const { data: p } = await sb.from("profiles").select("timezone,gcal_connected,gcal_sync_all").eq("user_id", user.id).maybeSingle();
+    const profile: Profile = p ?? { timezone: "UTC", gcal_connected: false, gcal_sync_all: false };
     const meta = user.user_metadata as { full_name?: string; name?: string };
     return <HourApp mode="cloud" userId={user.id} displayName={meta.full_name ?? meta.name ?? user.email ?? ""} initialProfile={profile} />;
   }

@@ -9,11 +9,16 @@ import {
 import { heuristicPaths } from "@/lib/heuristic";
 import { addDays, entryKey, hl, ymd } from "@/lib/time";
 import Settings from "./Settings";
+import RemindersCard, { type NewReminder } from "./RemindersCard";
+import type { ActionsApi } from "./ActionsPanel";
+import { heuristicActions, type Reminder } from "@/lib/reminders";
 import LogDialog from "./LogDialog";
 import ClockLoader from "./ClockLoader";
 
 export type Profile = {
   timezone: string;
+  gcal_connected: boolean;
+  gcal_sync_all: boolean;
 };
 type Props = { mode: "cloud" | "demo"; userId?: string; displayName?: string; initialProfile: Profile };
 type SyncState = "local" | "saving" | "synced" | "error";
@@ -59,6 +64,14 @@ function seedDemo(): { entries: Record<string, Entry>; tags: Tag[] } {
   return { entries, tags };
 }
 
+function seedReminders(): Reminder[] {
+  const today = ymd(new Date());
+  const mk = (title: string, due_date: string, due_time: string | null, source: "manual" | "ai" = "manual"): Reminder => ({
+    id: newId(), title, notes: "", due_date, due_time, done: false, done_at: null, source, source_day: null, source_hour: null, source_key: null, gcal_event_id: null, created_at: new Date().toISOString(),
+  });
+  return [mk("Send the Q4 plan to Priya", addDays(today, 1), null, "ai"), mk("Book badminton court", today, "18:00"), mk("Follow up on the referral", addDays(today, 3), null, "ai")];
+}
+
 function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const demo = mode === "demo";
   const sb = useMemo(() => (demo ? null : supabaseBrowser()), [demo]);
@@ -79,6 +92,9 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const [dialog, setDialog] = useState<{ day: string; hour: number } | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [failed, setFailed] = useState<Set<string>>(new Set());
+  const [reminders, setReminders] = useState<Reminder[]>(() => (demo ? seedReminders() : []));
+  const [notice, setNotice] = useState<string | null>(null);
+  const remindersRef = useRef(reminders);
   const [aiMode, setAiMode] = useState<"ai" | "fallback" | null>(null);
 
   const entriesRef = useRef(entries);
@@ -88,6 +104,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const settingsRef = useRef<HTMLDivElement>(null);
   const idx = useMemo(() => indexTags(tags), [tags]);
 
+  const setReminderList = (u: (p: Reminder[]) => Reminder[]) => { const n = u(remindersRef.current); remindersRef.current = n; setReminders(n); };
   const setAll = (next: Record<string, Entry>) => { entriesRef.current = next; setEntries(next); };
   const setTagList = (updater: (prev: Tag[]) => Tag[]) => { const n = updater(tagsRef.current); tagsRef.current = n; setTags(n); };
 
@@ -199,7 +216,8 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     Promise.all([
       sb.from("hour_logs").select("day,hour,items").gte("day", since),
       sb.from("tags").select("id,parent_id,name,color"),
-    ]).then(([logs, tg]) => {
+      sb.from("reminders").select("*").order("due_date").limit(500),
+    ]).then(([logs, tg, rm]) => {
       if (!alive) return;
       if (logs.error) { setSync("error"); setLoaded(true); return; }
       const map: Record<string, Entry> = {};
@@ -207,6 +225,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       for (const [k, v] of outbox.current) { if ("del" in v) delete map[k]; else map[k] = v; }
       setAll(map);
       setTagList(() => (tg.data ?? []) as Tag[]);
+      setReminderList(() => (rm.data ?? []) as Reminder[]);
       setLoaded(true);
       if (outbox.current.size) flush();
     });
@@ -224,6 +243,10 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
         if (p.eventType === "DELETE") { const id = (p.old as { id?: string }).id; if (id) setTagList((prev) => prev.filter((t) => t.id !== id)); }
         else { const t = p.new as Tag; setTagList((prev) => prev.some((x) => x.id === t.id) ? prev.map((x) => (x.id === t.id ? t : x)) : [...prev, t]); }
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "reminders", filter: `user_id=eq.${userId}` }, (p) => {
+        if (p.eventType === "DELETE") { const id = (p.old as { id?: string }).id; if (id) setReminderList((prev) => prev.filter((r) => r.id !== id)); }
+        else { const r = p.new as Reminder; setReminderList((prev) => prev.some((x) => x.id === r.id) ? prev.map((x) => (x.id === r.id ? r : x)) : [...prev, r]); }
+      })
       .subscribe();
     return () => { alive = false; sb.removeChannel(ch); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -234,6 +257,18 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     // clean up the old push service worker from earlier versions
     navigator.serviceWorker?.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
     const q = new URLSearchParams(location.search);
+    const g = q.get("gcal");
+    if (g) {
+      const msg: Record<string, string> = {
+        connected: "Google Calendar is connected.",
+        denied: "Google Calendar was not connected. You can try again in Settings.",
+        error: "Something went wrong connecting Google Calendar. Try again in Settings.",
+        unconfigured: "Google Calendar is not set up on this site yet.",
+      };
+      setNotice(msg[g] ?? null);
+      setShowSettings(true);
+      history.replaceState(null, "", "/");
+    }
     const d = q.get("d"), h = q.get("h");
     if (d && h && /^\d{4}-\d{2}-\d{2}$/.test(d)) { setView(d); setDialog({ day: d, hour: Math.min(23, Math.max(0, +h || 0)) }); history.replaceState(null, "", "/"); }
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -295,6 +330,72 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     if (p && hasLogged(p)) putItems(day, hour, p.items.map((i) => ({ ...i, id: newId() })));
   };
 
+  /* ---------- reminders + Google Calendar ---------- */
+  const tz = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const gcal = { connected: profile.gcal_connected, syncAll: profile.gcal_sync_all };
+  const post = async (url: string, body: unknown) => {
+    const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { ok: r.ok, json: (await r.json().catch(() => ({}))) as { error?: string; eventId?: string; link?: string } };
+  };
+  const calendarProblem = (error?: string) => {
+    if (error === "reconnect" || error === "not_connected") {
+      setProfile((p) => ({ ...p, gcal_connected: false, gcal_sync_all: false }));
+      setNotice("Google Calendar needs to be reconnected. Open Settings.");
+    }
+  };
+  const syncReminder = async (id: string) => {
+    const { ok, json } = await post("/api/gcal/sync", { action: "upsert", reminderId: id, tz: tz() });
+    if (ok && json.eventId) { setReminderList((prev) => prev.map((x) => (x.id === id ? { ...x, gcal_event_id: json.eventId! } : x))); return true; }
+    calendarProblem(json.error);
+    return false;
+  };
+
+  type NewFields = NewReminder & { notes?: string; source?: "manual" | "ai"; source_day?: string | null; source_hour?: number | null; source_key?: string | null };
+  const addReminder = async (f: NewFields, toCalendar: boolean): Promise<"added" | "exists" | "error"> => {
+    const base = { title: f.title, notes: f.notes ?? "", due_date: f.due_date, due_time: f.due_time, source: f.source ?? "manual", source_day: f.source_day ?? null, source_hour: f.source_hour ?? null, source_key: f.source_key ?? null };
+    if (demo) {
+      if (base.source_key && remindersRef.current.some((x) => x.source_key === base.source_key)) return "exists";
+      setReminderList((p) => [...p, { ...base, id: newId(), done: false, done_at: null, gcal_event_id: null, created_at: new Date().toISOString() }]);
+      return "added";
+    }
+    if (!sb || !userId) return "error";
+    const { data, error } = await sb.from("reminders").insert({ user_id: userId, ...base }).select("*").single();
+    if (error) return error.code === "23505" ? "exists" : "error";
+    setReminderList((p) => (p.some((x) => x.id === data.id) ? p : [...p, data as Reminder]));
+    if (toCalendar && profile.gcal_connected) await syncReminder(data.id);
+    return "added";
+  };
+  const toggleDone = async (r: Reminder) => {
+    const done = !r.done;
+    setReminderList((p) => p.map((x) => (x.id === r.id ? { ...x, done, done_at: done ? new Date().toISOString() : null } : x)));
+    if (sb) await sb.from("reminders").update({ done, done_at: done ? new Date().toISOString() : null }).eq("id", r.id);
+  };
+  const removeReminder = async (r: Reminder) => {
+    setReminderList((p) => p.filter((x) => x.id !== r.id));
+    if (!sb) return;
+    await sb.from("reminders").delete().eq("id", r.id);
+    if (r.gcal_event_id) post("/api/gcal/sync", { action: "delete", eventId: r.gcal_event_id });
+  };
+  const updateReminder = async (r: Reminder, patch: NewReminder) => {
+    setReminderList((p) => p.map((x) => (x.id === r.id ? { ...x, ...patch } : x)));
+    if (!sb) return;
+    await sb.from("reminders").update(patch).eq("id", r.id);
+    if (r.gcal_event_id || (profile.gcal_connected && profile.gcal_sync_all)) await syncReminder(r.id);
+  };
+  const connectGoogle = () => { location.href = "/api/google/connect"; };
+  const disconnectGoogle = async () => {
+    await fetch("/api/google/disconnect", { method: "POST" });
+    setProfile((p) => ({ ...p, gcal_connected: false, gcal_sync_all: false }));
+    setReminderList((p) => p.map((x) => ({ ...x, gcal_event_id: null })));
+    setNotice("Google Calendar is disconnected. Events already on your calendar stay there.");
+  };
+  const setSyncAll = async (v: boolean) => {
+    setProfile((p) => ({ ...p, gcal_sync_all: v }));
+    if (!sb || !userId) return;
+    await sb.from("profiles").update({ gcal_sync_all: v }).eq("user_id", userId);
+    if (v) for (const r of remindersRef.current.filter((x) => !x.done && x.due_date >= today && !x.gcal_event_id)) await syncReminder(r.id);
+  };
+
   /* ---------- keyboard ---------- */
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
@@ -340,6 +441,24 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
           <Link className="btn ink" href="/">Sign in with Google</Link>
         </div>
       )}
+
+      {notice && (
+        <div className="demobar" role="status">
+          <span>{notice}</span>
+          <button className="btn" onClick={() => setNotice(null)}>Dismiss</button>
+        </div>
+      )}
+
+      <RemindersCard
+        reminders={reminders}
+        today={today}
+        nowTime={`${String(new Date().getHours()).padStart(2, "0")}:${String(minute).padStart(2, "0")}`}
+        gcal={gcal}
+        onAdd={async (r, toCal) => { await addReminder(r, toCal); }}
+        onToggle={toggleDone}
+        onDelete={removeReminder}
+        onUpdate={updateReminder}
+      />
 
       <section className="hero">
         <div className="card nowcard">
@@ -443,7 +562,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       </section>
 
       <div ref={settingsRef}>
-        <Settings open={showSettings} onToggle={setShowSettings} demo={demo} sb={sb} />
+        <Settings open={showSettings} onToggle={setShowSettings} demo={demo} sb={sb} gcal={gcal} onConnect={connectGoogle} onDisconnect={disconnectGoogle} onSyncAll={setSyncAll} />
       </div>
       <div className="foot">Press L to log the current hour.</div>
 
@@ -466,6 +585,25 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
           onSame={() => sameAsLast(dialog.day, dialog.hour)}
           onNav={(d) => setDialog((cur) => (cur ? { ...cur, hour: Math.min(23, Math.max(0, cur.hour + d)) } : cur))}
           onClose={() => setDialog(null)}
+          actionsApi={{
+            demo,
+            today,
+            gcal,
+            connectGoogle,
+            generate: async (texts) => {
+              if (demo) return { actions: heuristicActions(texts, today), source: "fallback" };
+              const n = new Date();
+              const now = `${ymd(n)}T${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
+              const r = await fetch("/api/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: texts, now, tz: tz(), day: dialog.day, hour: dialog.hour }) });
+              return r.ok ? await r.json() : null;
+            },
+            addReminder: (sg, toCal) => addReminder({ title: sg.title, notes: sg.notes, due_date: sg.date, due_time: sg.time, source: "ai", source_day: dialog.day, source_hour: dialog.hour, source_key: sg.key }, toCal),
+            addEvent: async (sg) => {
+              const { ok, json } = await post("/api/gcal/sync", { action: "event", title: sg.title, notes: sg.notes, date: sg.date, time: sg.time, endTime: sg.end_time, tz: tz() });
+              if (!ok) calendarProblem(json.error);
+              return { ok, link: json.link, error: json.error };
+            },
+          } satisfies ActionsApi}
         />
       )}
     </main>

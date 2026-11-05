@@ -4,6 +4,7 @@ import { hl } from "@/lib/time";
 import { hasLogged, newId, type Entry, type Item, type Tag, type TagIndex } from "@/lib/tags";
 import ClockLoader from "./ClockLoader";
 import { TagChip, TagPicker } from "./TagUI";
+import ActionsPanel, { type ActionsApi } from "./ActionsPanel";
 
 type Props = {
   day: string;
@@ -23,6 +24,7 @@ type Props = {
   onSame: () => void;
   onNav: (delta: number) => void;
   onClose: () => void;
+  actionsApi: ActionsApi;
 };
 
 function Grow({ inputRef, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { value: string; inputRef?: React.RefObject<HTMLTextAreaElement | null> }) {
@@ -128,6 +130,7 @@ export default function LogDialog(p: Props) {
             <button className="btn ink" onClick={commitDraft} disabled={!draft.trim()}>Add</button>
           </div>
           <p className="dkeys">Enter adds the pointer. Shift + Enter starts a new line.</p>
+          <ActionsPanel key={`${p.day}-${p.hour}`} api={p.actionsApi} texts={items.map((i) => i.text).filter((t) => t.trim())} />
         </div>
 
         <footer className="dfoot">

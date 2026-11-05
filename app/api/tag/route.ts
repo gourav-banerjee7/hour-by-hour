@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { ensurePath, indexTags, type Tag } from "@/lib/tags";
 import { heuristicPaths } from "@/lib/heuristic";
+import { geminiConfigured, geminiJson } from "@/lib/gemini";
 
 export const maxDuration = 30;
 
-// Override with GEMINI_MODEL in Vercel if you prefer another Gemini model.
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 type In = { id: string; text: string };
 type Path = string[];
 
@@ -32,41 +31,24 @@ function treeText(tags: Tag[]) {
 }
 
 async function aiPaths(items: In[], tags: Tag[]): Promise<Map<string, Path[]>> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY! },
-    signal: AbortSignal.timeout(20000),
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM }] },
-      contents: [{ role: "user", parts: [{ text: `Current tag tree:\n${treeText(tags)}\n\nNotes to tag (JSON):\n${JSON.stringify(items)}` }] }],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 2000,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "OBJECT",
-          properties: {
-            results: {
-              type: "ARRAY",
-              items: {
-                type: "OBJECT",
-                properties: {
-                  id: { type: "STRING" },
-                  paths: { type: "ARRAY", items: { type: "ARRAY", items: { type: "STRING" } } },
-                },
-                required: ["id", "paths"],
-              },
-            },
+  const parsed = await geminiJson<{ results?: { id: string; paths: Path[] }[] }>({
+    system: SYSTEM,
+    prompt: `Current tag tree:\n${treeText(tags)}\n\nNotes to tag (JSON):\n${JSON.stringify(items)}`,
+    schema: {
+      type: "OBJECT",
+      properties: {
+        results: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: { id: { type: "STRING" }, paths: { type: "ARRAY", items: { type: "ARRAY", items: { type: "STRING" } } } },
+            required: ["id", "paths"],
           },
-          required: ["results"],
         },
       },
-    }),
+      required: ["results"],
+    },
   });
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
-  const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-  const parsed = JSON.parse(text) as { results?: { id: string; paths: Path[] }[] };
   const out = new Map<string, Path[]>();
   (parsed.results ?? []).forEach((r) =>
     out.set(r.id, (r.paths ?? []).filter((p) => Array.isArray(p) && p.length).map((p) => p.slice(0, 4)).slice(0, 3)),
@@ -90,7 +72,7 @@ export async function POST(req: Request) {
 
   let paths = new Map<string, Path[]>();
   let source: "ai" | "fallback" = "fallback";
-  if (process.env.GEMINI_API_KEY) {
+  if (geminiConfigured()) {
     try { paths = await aiPaths(items, tags); source = "ai"; } catch (e) { console.error("tagging failed", e); }
   }
   if (source === "fallback") items.forEach((i) => paths.set(i.id, heuristicPaths(i.text)));

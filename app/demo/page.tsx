@@ -6,7 +6,7 @@ export default function Demo() {
   return (
     <HourApp
       mode="demo"
-      initialProfile={{ timezone: "UTC" }}
+      initialProfile={{ timezone: "UTC", gcal_connected: false, gcal_sync_all: false }}
     />
   );
 }
