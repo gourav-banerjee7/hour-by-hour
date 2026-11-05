@@ -1,4 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { ensurePath, indexTags, type Tag } from "@/lib/tags";
@@ -6,7 +5,8 @@ import { heuristicPaths } from "@/lib/heuristic";
 
 export const maxDuration = 30;
 
-const MODEL = "claude-haiku-5-5";
+// Override with GEMINI_MODEL in Vercel if you prefer another Gemini model.
+const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 type In = { id: string; text: string };
 type Path = string[];
 
@@ -32,44 +32,45 @@ function treeText(tags: Tag[]) {
 }
 
 async function aiPaths(items: In[], tags: Tag[]): Promise<Map<string, Path[]>> {
-  const client = new Anthropic();
-  const res = await client.messages.create({
-    model: MODEL,
-    max_tokens: 1500,
-    system: SYSTEM,
-    tools: [{
-      name: "assign_tags",
-      description: "Assign tag paths to each note.",
-      input_schema: {
-        type: "object",
-        properties: {
-          results: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                id: { type: "string" },
-                paths: { type: "array", maxItems: 3, items: { type: "array", minItems: 1, maxItems: 4, items: { type: "string" } } },
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY! },
+    signal: AbortSignal.timeout(20000),
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM }] },
+      contents: [{ role: "user", parts: [{ text: `Current tag tree:\n${treeText(tags)}\n\nNotes to tag (JSON):\n${JSON.stringify(items)}` }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 2000,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            results: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  id: { type: "STRING" },
+                  paths: { type: "ARRAY", items: { type: "ARRAY", items: { type: "STRING" } } },
+                },
+                required: ["id", "paths"],
               },
-              required: ["id", "paths"],
             },
           },
+          required: ["results"],
         },
-        required: ["results"],
       },
-    }],
-    tool_choice: { type: "tool", name: "assign_tags" },
-    messages: [{
-      role: "user",
-      content: `Current tag tree:\n${treeText(tags)}\n\nNotes to tag (JSON):\n${JSON.stringify(items)}`,
-    }],
+    }),
   });
-  const block = res.content.find((b) => b.type === "tool_use");
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  const parsed = JSON.parse(text) as { results?: { id: string; paths: Path[] }[] };
   const out = new Map<string, Path[]>();
-  if (block && block.type === "tool_use") {
-    const results = (block.input as { results?: { id: string; paths: Path[] }[] }).results ?? [];
-    results.forEach((r) => out.set(r.id, (r.paths ?? []).filter((p) => Array.isArray(p) && p.length).slice(0, 3)));
-  }
+  (parsed.results ?? []).forEach((r) =>
+    out.set(r.id, (r.paths ?? []).filter((p) => Array.isArray(p) && p.length).map((p) => p.slice(0, 4)).slice(0, 3)),
+  );
   return out;
 }
 
@@ -89,7 +90,7 @@ export async function POST(req: Request) {
 
   let paths = new Map<string, Path[]>();
   let source: "ai" | "fallback" = "fallback";
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (process.env.GEMINI_API_KEY) {
     try { paths = await aiPaths(items, tags); source = "ai"; } catch (e) { console.error("tagging failed", e); }
   }
   if (source === "fallback") items.forEach((i) => paths.set(i.id, heuristicPaths(i.text)));
