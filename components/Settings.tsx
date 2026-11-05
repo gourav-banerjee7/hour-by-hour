@@ -63,7 +63,6 @@ export default function Settings({ open, onToggle, demo, sb, userId, profile, sa
     setIcsMsg("Downloaded. Open it to add the repeating reminder to your calendar.");
   };
   const signOut = async () => { await sb?.auth.signOut(); location.href = "/"; };
-  const removeCustom = (id: string) => saveProfile({ custom_activities: profile.custom_activities.filter((x) => x.id !== id) });
 
   return (
     <details className="card remind" open={open} onToggle={(e) => onToggle((e.target as HTMLDetailsElement).open)}>
@@ -109,9 +108,6 @@ export default function Settings({ open, onToggle, demo, sb, userId, profile, sa
         {!demo && (
           <div className="rbox">
             <h4>Your data</h4>
-            {profile.custom_activities.length > 0 && (
-              <div className="row">{profile.custom_activities.map((c) => <button key={c.id} className="btn" onClick={() => removeCustom(c.id)} title="Remove">{c.l} ×</button>)}</div>
-            )}
             <div className="row">
               <a className="btn" href="/api/export">Export CSV</a>
               <button className="btn" onClick={signOut}>Sign out</button>

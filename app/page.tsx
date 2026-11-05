@@ -10,8 +10,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
   const user = data.user;
 
   if (user) {
-    const { data: p } = await sb.from("profiles").select("timezone,active_start,active_end,reminders_enabled,custom_activities").eq("user_id", user.id).maybeSingle();
-    const profile: Profile = p ?? { timezone: "UTC", active_start: 8, active_end: 22, reminders_enabled: true, custom_activities: [] };
+    const { data: p } = await sb.from("profiles").select("timezone,active_start,active_end,reminders_enabled").eq("user_id", user.id).maybeSingle();
+    const profile: Profile = p ?? { timezone: "UTC", active_start: 8, active_end: 22, reminders_enabled: true };
     const meta = user.user_metadata as { full_name?: string; name?: string };
     return <HourApp mode="cloud" userId={user.id} displayName={meta.full_name ?? meta.name ?? user.email ?? ""} initialProfile={profile} />;
   }

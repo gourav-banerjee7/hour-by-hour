@@ -2,17 +2,22 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
-import { CATS, activityById, allActivities, hasLogged, type CatKey, type CustomActivity, type Entry } from "@/lib/activities";
+import {
+  UNTAGGED_COLOR, colorOf, ensureLocal, ensurePath, hasLogged, hoursByRoot, indexTags, mergeTags, newId,
+  type Entry, type Item, type Tag,
+} from "@/lib/tags";
+import { heuristicPaths } from "@/lib/heuristic";
 import { addDays, entryKey, hl, ymd } from "@/lib/time";
 import { registerWorker } from "@/lib/push-client";
 import Settings from "./Settings";
+import LogDialog from "./LogDialog";
+import ClockLoader from "./ClockLoader";
 
 export type Profile = {
   timezone: string;
   active_start: number;
   active_end: number;
   reminders_enabled: boolean;
-  custom_activities: CustomActivity[];
 };
 type Props = { mode: "cloud" | "demo"; userId?: string; displayName?: string; initialProfile: Profile };
 type SyncState = "local" | "saving" | "synced" | "error";
@@ -24,79 +29,73 @@ const SYNC_TEXT: Record<SyncState, string> = {
   synced: "Synced to your account",
   error: "Offline, will retry",
 };
-const OUTBOX_KEY = "hbh_outbox_v1";
+const OUTBOX_KEY = "hbh_outbox_v2";
 
 export default function HourApp(props: Props) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  if (!mounted) return <div className="app"><div className="card" style={{ minHeight: 320 }} /></div>;
+  if (!mounted) return <div className="fullload"><ClockLoader size={64} label="Loading your hours" /></div>;
   return <Inner {...props} />;
 }
 
-function seedDemo(): Record<string, Entry> {
+function seedDemo(): { entries: Record<string, Entry>; tags: Tag[] } {
+  let tags: Tag[] = [];
+  const mk = (path: string[]) => { const r = ensureLocal(tags, path); tags = [...tags, ...r.created]; return r.id!; };
   const today = ymd(new Date());
-  const now = new Date().getHours();
-  const rows: [number, Record<string, number>, string][] = [
-    [8, { meal: 1 }, "Porridge and a coffee"],
-    [9, { code: 1, pr: 1 }, "Fixed the flaky payments test"],
-    [10, { code: 1, meet: 1 }, ""],
-    [11, { review: 2, code: 1 }, ""],
-    [12, { run: 1 }, "5k, felt good"],
-    [13, { meal: 1, yt: 1 }, ""],
-    [14, { apply: 2, conn: 3 }, "Two referrals asked"],
-    [15, { code: 1, pr: 2 }, ""],
-    [16, { bad: 1 }, ""],
-    [17, { gym: 1 }, ""],
-    [19, { movie: 1 }, ""],
-  ];
-  const out: Record<string, Entry> = {};
   const yesterday = addDays(today, -1);
-  for (const [h, a, note] of rows) {
-    out[entryKey(yesterday, h)] = { day: yesterday, hour: h, a, note };
-    if (h < now) out[entryKey(today, h)] = { day: today, hour: h, a, note };
+  const now = new Date().getHours();
+  const rows: [number, [string, string[][]][]][] = [
+    [8, [["Porridge and a long coffee", [["Life", "Meals"]]]]],
+    [9, [["Fixed the flaky payments test, then opened a PR for the retry logic", [["Work", "Engineering", "Payments"]]], ["Opened PR #482", [["Work", "Code review"]]]]],
+    [10, [["Sprint planning", [["Work", "Meetings"]]], ["Design review for the new onboarding flow, left a lot of comments on the empty states", [["Work", "Code review", "Design"]]]]],
+    [12, [["5k along the river, felt strong", [["Health", "Running"]]]]],
+    [13, [["Lunch and a YouTube spiral about espresso machines", [["Life", "Meals"], ["Entertainment", "YouTube"]]]]],
+    [14, [["Sent 2 job applications and followed up with a referral", [["Career", "Job search"]]], ["Coffee chat with Priya about platform teams", [["Career", "Networking"]]]]],
+    [16, [["Badminton doubles, won two sets", [["Health", "Sport"]]]]],
+    [17, [["Gym: legs", [["Health", "Gym"]]]]],
+  ];
+  const entries: Record<string, Entry> = {};
+  for (const [h, list] of rows) {
+    const items: Item[] = list.map(([text, paths]) => ({ id: newId(), text, tags: paths.map(mk), tt: text }));
+    entries[entryKey(yesterday, h)] = { day: yesterday, hour: h, items };
+    if (h < now) entries[entryKey(today, h)] = { day: today, hour: h, items: items.map((i) => ({ ...i, id: newId() })) };
   }
-  return out;
+  return { entries, tags };
 }
 
 function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const demo = mode === "demo";
   const sb = useMemo(() => (demo ? null : supabaseBrowser()), [demo]);
   const START = 6;
+  const seed = useMemo(() => (demo ? seedDemo() : null), [demo]);
 
   const [today, setToday] = useState(() => ymd(new Date()));
   const [view, setView] = useState(today);
-  const [entries, setEntries] = useState<Record<string, Entry>>(() => (demo ? seedDemo() : {}));
+  const [entries, setEntries] = useState<Record<string, Entry>>(() => seed?.entries ?? {});
+  const [tags, setTags] = useState<Tag[]>(() => seed?.tags ?? []);
   const [profile, setProfile] = useState<Profile>(initialProfile);
-  const [sel, setSel] = useState(START);
   const [allDay, setAllDay] = useState(false);
   const [sync, setSync] = useState<SyncState>(demo ? "local" : "synced");
   const [loaded, setLoaded] = useState(demo);
-  const [justId, setJustId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [animIn, setAnimIn] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [minute, setMinute] = useState(() => new Date().getMinutes());
+  const [dialog, setDialog] = useState<{ day: string; hour: number } | null>(null);
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const [failed, setFailed] = useState<Set<string>>(new Set());
+  const [aiMode, setAiMode] = useState<"ai" | "fallback" | null>(null);
 
   const entriesRef = useRef(entries);
+  const tagsRef = useRef(tags);
   const outbox = useRef<Map<string, Pending>>(new Map());
   const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastHour = useRef(new Date().getHours());
   const settingsRef = useRef<HTMLDivElement>(null);
-  const custom = profile.custom_activities;
+  const idx = useMemo(() => indexTags(tags), [tags]);
 
   const setAll = (next: Record<string, Entry>) => { entriesRef.current = next; setEntries(next); };
-
-  /* ---------- default hour to log ---------- */
-  const pickDefault = useCallback((day: string, map: Record<string, Entry>) => {
-    if (day === ymd(new Date())) {
-      const h = new Date().getHours();
-      const prev = h - 1;
-      if (prev >= START && !hasLogged(map[entryKey(day, prev)])) return prev;
-      return h;
-    }
-    for (let h = START; h < 24; h++) if (!hasLogged(map[entryKey(day, h)])) return h;
-    return START;
-  }, []);
+  const setTagList = (updater: (prev: Tag[]) => Tag[]) => { const n = updater(tagsRef.current); tagsRef.current = n; setTags(n); };
 
   /* ---------- saving ---------- */
   const flush = useCallback(async () => {
@@ -107,7 +106,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     for (const [k, v] of items) {
       const res = "del" in v
         ? await sb.from("hour_logs").delete().match({ user_id: userId, day: v.day, hour: v.hour })
-        : await sb.from("hour_logs").upsert({ user_id: userId, day: v.day, hour: v.hour, activities: v.a, note: v.note }, { onConflict: "user_id,day,hour" });
+        : await sb.from("hour_logs").upsert({ user_id: userId, day: v.day, hour: v.hour, items: v.items }, { onConflict: "user_id,day,hour" });
       if (res.error) { setSync("error"); return; }
       if (outbox.current.get(k) === v) outbox.current.delete(k);
     }
@@ -124,16 +123,74 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     flushTimer.current = setTimeout(flush, delay);
   };
 
-  const edit = (fn: (e: Entry) => void, opts: { slow?: boolean } = {}) => {
-    const k = entryKey(view, sel);
-    const base = entriesRef.current[k] ?? { day: view, hour: sel, a: {}, note: "" };
-    const e: Entry = { ...base, a: { ...base.a } };
-    fn(e);
+  /** Replace the pointers of one hour. */
+  const putItems = (day: string, hour: number, items: Item[], slow = false) => {
+    const k = entryKey(day, hour);
+    const kept = items.filter((i) => i.text.trim());
     const next = { ...entriesRef.current };
-    const empty = !Object.keys(e.a).length && !e.note.trim();
-    if (empty) delete next[k]; else next[k] = e;
+    if (items.length) next[k] = { day, hour, items }; else delete next[k];
     setAll(next);
-    queue(k, empty ? { del: true, day: view, hour: sel } : e, opts.slow ? 700 : 150);
+    if (kept.length) queue(k, { day, hour, items: kept }, slow ? 700 : 150);
+    else queue(k, { del: true, day, hour }, 150);
+  };
+
+  /* ---------- AI tagging ---------- */
+  const runTagging = async (day: string, hour: number, ids: string[]) => {
+    const e = entriesRef.current[entryKey(day, hour)];
+    const targets = (e?.items ?? []).filter((i) => ids.includes(i.id) && i.text.trim());
+    if (!targets.length) return;
+    setPending((p) => new Set([...p, ...targets.map((t) => t.id)]));
+    setFailed((f) => { const n = new Set(f); targets.forEach((t) => n.delete(t.id)); return n; });
+    let results: { id: string; tags: string[] }[] = [];
+    let ok = true;
+    try {
+      if (demo) {
+        let list = tagsRef.current;
+        results = targets.map((t) => {
+          const idsFor: string[] = [];
+          for (const path of heuristicPaths(t.text)) {
+            const r = ensureLocal(list, path);
+            list = mergeTags(list, r.created);
+            if (r.id && !idsFor.includes(r.id)) idsFor.push(r.id);
+          }
+          return { id: t.id, tags: idsFor };
+        });
+        setTagList(() => list);
+        setAiMode("fallback");
+      } else {
+        const r = await fetch("/api/tag", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: targets.map((t) => ({ id: t.id, text: t.text })) }) });
+        if (!r.ok) throw new Error("tag failed");
+        const j = (await r.json()) as { results: { id: string; tags: string[] }[]; created: Tag[]; source: "ai" | "fallback" };
+        results = j.results;
+        if (j.created?.length) setTagList((prev) => mergeTags(prev, j.created));
+        setAiMode(j.source === "ai" ? "ai" : "fallback");
+      }
+    } catch { ok = false; }
+
+    const cur = entriesRef.current[entryKey(day, hour)];
+    if (cur && ok) {
+      const items = cur.items.map((i) => {
+        const r = results.find((x) => x.id === i.id);
+        const asked = targets.find((t) => t.id === i.id);
+        if (!r || !asked || i.manual || i.text.trim() !== asked.text.trim()) return i;
+        return { ...i, tags: r.tags, tt: i.text.trim() };
+      });
+      putItems(day, hour, items);
+    }
+    if (!ok) setFailed((f) => new Set([...f, ...targets.map((t) => t.id)]));
+    setPending((p) => { const n = new Set(p); targets.forEach((t) => n.delete(t.id)); return n; });
+  };
+
+  const createTag = async (path: string[]): Promise<string | null> => {
+    if (demo) {
+      const r = ensureLocal(tagsRef.current, path);
+      if (r.created.length) setTagList((prev) => mergeTags(prev, r.created));
+      return r.id;
+    }
+    if (!sb || !userId) return null;
+    const r = await ensurePath(sb, userId, tagsRef.current, path);
+    if (r.created.length) setTagList((prev) => mergeTags(prev, r.created));
+    return r.id;
   };
 
   /* ---------- load + realtime ---------- */
@@ -145,27 +202,33 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       saved.forEach(([k, v]) => outbox.current.set(k, v));
     } catch {}
     const since = addDays(ymd(new Date()), -13);
-    sb.from("hour_logs").select("day,hour,activities,note").gte("day", since).then(({ data, error }) => {
+    Promise.all([
+      sb.from("hour_logs").select("day,hour,items").gte("day", since),
+      sb.from("tags").select("id,parent_id,name,color"),
+    ]).then(([logs, tg]) => {
       if (!alive) return;
-      if (error) { setSync("error"); setLoaded(true); return; }
+      if (logs.error) { setSync("error"); setLoaded(true); return; }
       const map: Record<string, Entry> = {};
-      (data ?? []).forEach((r) => { map[entryKey(r.day, r.hour)] = { day: r.day, hour: r.hour, a: r.activities ?? {}, note: r.note ?? "" }; });
+      (logs.data ?? []).forEach((r) => { map[entryKey(r.day, r.hour)] = { day: r.day, hour: r.hour, items: (r.items as Item[]) ?? [] }; });
       for (const [k, v] of outbox.current) { if ("del" in v) delete map[k]; else map[k] = v; }
       setAll(map);
-      setSel(pickDefault(ymd(new Date()), map));
+      setTagList(() => (tg.data ?? []) as Tag[]);
       setLoaded(true);
       if (outbox.current.size) flush();
     });
-    const ch = sb.channel("hour_logs_live")
+    const ch = sb.channel("live")
       .on("postgres_changes", { event: "*", schema: "public", table: "hour_logs", filter: `user_id=eq.${userId}` }, (p) => {
-        const row = (p.eventType === "DELETE" ? p.old : p.new) as { day?: string; hour?: number; activities?: Record<string, number>; note?: string };
+        const row = (p.eventType === "DELETE" ? p.old : p.new) as { day?: string; hour?: number; items?: Item[] };
         if (!row.day || row.hour === undefined) return;
         const k = entryKey(row.day, row.hour);
         if (outbox.current.has(k)) return;
         const next = { ...entriesRef.current };
-        if (p.eventType === "DELETE") delete next[k];
-        else next[k] = { day: row.day, hour: row.hour, a: row.activities ?? {}, note: row.note ?? "" };
+        if (p.eventType === "DELETE") delete next[k]; else next[k] = { day: row.day, hour: row.hour, items: row.items ?? [] };
         setAll(next);
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "tags", filter: `user_id=eq.${userId}` }, (p) => {
+        if (p.eventType === "DELETE") { const id = (p.old as { id?: string }).id; if (id) setTagList((prev) => prev.filter((t) => t.id !== id)); }
+        else { const t = p.new as Tag; setTagList((prev) => prev.some((x) => x.id === t.id) ? prev.map((x) => (x.id === t.id ? t : x)) : [...prev, t]); }
       })
       .subscribe();
     return () => { alive = false; sb.removeChannel(ch); };
@@ -177,8 +240,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     registerWorker();
     const q = new URLSearchParams(location.search);
     const d = q.get("d"), h = q.get("h");
-    if (d && h && /^\d{4}-\d{2}-\d{2}$/.test(d)) { setView(d); setSel(Math.min(23, Math.max(0, +h || 0))); history.replaceState(null, "", "/"); }
-    else setSel(pickDefault(ymd(new Date()), entriesRef.current));
+    if (d && h && /^\d{4}-\d{2}-\d{2}$/.test(d)) { setView(d); setDialog({ day: d, hour: Math.min(23, Math.max(0, +h || 0)) }); history.replaceState(null, "", "/"); }
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (sb && userId && tz && tz !== initialProfile.timezone) {
       sb.from("profiles").update({ timezone: tz }).eq("user_id", userId).then(() => setProfile((p) => ({ ...p, timezone: tz })));
@@ -202,7 +264,6 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       if (h !== lastHour.current) {
         lastHour.current = h;
         setView(nt);
-        setSel(pickDefault(nt, entriesRef.current));
         setToast(`It's ${hl(h)}. What did you do ${hl(h - 1)} to ${hl(h)}?`);
         setTimeout(() => setToast(null), 12000);
       }
@@ -211,64 +272,20 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     const vis = () => { if (!document.hidden) tick(); };
     document.addEventListener("visibilitychange", vis);
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", vis); };
-  }, [today, pickDefault]);
-
-  /* ---------- keyboard ---------- */
-  useEffect(() => {
-    const onKey = (ev: KeyboardEvent) => {
-      const t = ev.target as HTMLElement;
-      if (/INPUT|TEXTAREA|SELECT/.test(t.tagName) || ev.metaKey || ev.ctrlKey || ev.altKey) return;
-      if (ev.key === "ArrowLeft") setSel((s) => Math.max(0, s - 1));
-      else if (ev.key === "ArrowRight") setSel((s) => Math.min(23, s + 1));
-      else if (ev.key.toLowerCase() === "s") sameAsLast();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  });
-
-  /* ---------- actions ---------- */
-  const goDay = (d: string) => { setView(d); setSel(pickDefault(d, entriesRef.current)); };
-  const sameAsLast = () => {
-    const p = entriesRef.current[entryKey(view, sel - 1)];
-    if (p && hasLogged(p)) edit((e) => { e.a = { ...p.a }; });
-  };
-  const toggle = (id: string) => edit((e) => { if (e.a[id]) delete e.a[id]; else { e.a[id] = 1; setJustId(id); } });
-  const step = (id: string, d: number) => edit((e) => { e.a[id] = Math.min(99, Math.max(1, (e.a[id] || 1) + d)); });
-
-  const saveProfile = async (patch: Partial<Profile>) => {
-    setProfile((p) => ({ ...p, ...patch }));
-    if (sb && userId) await sb.from("profiles").update(patch).eq("user_id", userId);
-  };
-  const addCustom = (label: string) => {
-    const v = label.trim();
-    if (!v) return;
-    const id = "c_" + v.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    if (!custom.some((x) => x.id === id)) saveProfile({ custom_activities: [...custom, { id, l: v }] });
-    edit((e) => { e.a[id] = 1; });
-    setJustId(id);
-  };
+  }, [today]);
 
   /* ---------- derived ---------- */
   const hours = allDay ? [...Array(24).keys()] : [...Array(18).keys()].map((i) => i + START);
   const nowH = new Date().getHours();
-  const dayList = Object.values(entries).filter((e) => e.day === view && hasLogged(e));
-  const logged = dayList.filter((e) => hours.includes(e.hour)).length;
-  const per: Partial<Record<CatKey, number>> = {};
-  const sums = { pr: 0, apply: 0, conn: 0 };
-  dayList.forEach((e) => {
-    const cs = [...new Set(Object.keys(e.a).map((id) => activityById(custom, id).c))];
-    cs.forEach((c) => { per[c] = (per[c] ?? 0) + 1 / cs.length; });
-    (Object.keys(sums) as (keyof typeof sums)[]).forEach((id) => { if (e.a[id]) sums[id] += e.a[id]; });
-  });
-  const perSorted = (Object.entries(per) as [CatKey, number][]).sort((a, b) => b[1] - a[1]);
+  const isToday = view === today;
+  const dayEntries = Object.values(entries).filter((e) => e.day === view && hasLogged(e));
+  const logged = dayEntries.filter((e) => hours.includes(e.hour)).length;
+  const pointers = dayEntries.reduce((n, e) => n + e.items.filter((i) => i.text.trim()).length, 0);
+  const perRoot = hoursByRoot(idx, dayEntries);
   const C = 2 * Math.PI * 49;
   const offset = animIn ? C * (1 - Math.min(1, logged / hours.length)) : C;
   const left = hours.length - logged;
   const week = [...Array(7).keys()].map((i) => addDays(today, i - 6));
-  const cur = entries[entryKey(view, sel)] ?? { day: view, hour: sel, a: {}, note: "" };
-  const prevHas = hasLogged(entries[entryKey(view, sel - 1)]);
-  const isToday = view === today;
   const g = new Date().getHours();
   const greeting = g < 5 ? "Late one" : g < 12 ? "Good morning" : g < 17 ? "Good afternoon" : "Good evening";
   const fmtDay = (d: string) =>
@@ -276,13 +293,43 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       : new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
   const firstName = (displayName ?? "").split(" ")[0];
 
-  const [customText, setCustomText] = useState("");
+  // the hour you most likely want to log now: the one that just finished, if still empty
+  const defaultHour = useMemo(() => {
+    if (view !== today) { for (let h = START; h < 24; h++) if (!hasLogged(entries[entryKey(view, h)])) return h; return START; }
+    const prev = nowH - 1;
+    return prev >= START && !hasLogged(entries[entryKey(view, prev)]) ? prev : nowH;
+  }, [view, today, nowH, entries]);
+  const openHour = (day: string, hour: number) => setDialog({ day, hour });
+  const defaultEntry = entries[entryKey(view, defaultHour)];
+
+  const sameAsLast = (day: string, hour: number) => {
+    const p = entriesRef.current[entryKey(day, hour - 1)];
+    if (p && hasLogged(p)) putItems(day, hour, p.items.map((i) => ({ ...i, id: newId() })));
+  };
+
+  /* ---------- keyboard ---------- */
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      const t = ev.target as HTMLElement;
+      if (/INPUT|TEXTAREA|SELECT/.test(t.tagName) || ev.metaKey || ev.ctrlKey || ev.altKey || dialog) return;
+      if (ev.key.toLowerCase() === "l") { ev.preventDefault(); openHour(view, defaultHour); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const saveProfile = async (patch: Partial<Profile>) => {
+    setProfile((p) => ({ ...p, ...patch }));
+    if (sb && userId) await sb.from("profiles").update(patch).eq("user_id", userId);
+  };
+
+  const dlgEntry = dialog ? entries[entryKey(dialog.day, dialog.hour)] : undefined;
 
   return (
     <main className="app">
       <div className={`toast${toast ? " show" : ""}`} role="status">
         <span>{toast}</span>
-        <button onClick={() => { setToast(null); goDay(today); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Log it</button>
+        <button onClick={() => { setToast(null); setView(today); openHour(today, Math.max(0, new Date().getHours() - 1)); }}>Log it</button>
       </div>
 
       <header className="top">
@@ -298,74 +345,35 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
           <h1>Hour by Hour</h1>
         </div>
         <div className="nav" role="group" aria-label="Choose day">
-          <button onClick={() => goDay(addDays(view, -1))} aria-label="Previous day">‹</button>
-          <button className="day" onClick={() => goDay(today)}>{fmtDay(view)}</button>
-          <button onClick={() => goDay(addDays(view, 1))} aria-label="Next day">›</button>
+          <button onClick={() => setView(addDays(view, -1))} aria-label="Previous day">‹</button>
+          <button className="day" onClick={() => setView(today)}>{fmtDay(view)}</button>
+          <button onClick={() => setView(addDays(view, 1))} aria-label="Next day">›</button>
         </div>
         {!demo && <Link className="btn pill" href="/insights">Insights</Link>}
         <button className="btn pill" onClick={() => { setShowSettings(true); setTimeout(() => settingsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}>
-          {demo ? "Reminders" : firstName ? `${firstName}` : "Settings"}
+          {demo ? "Reminders" : firstName || "Settings"}
         </button>
         <div className="syncpill" data-s={sync}><b /><span>{SYNC_TEXT[sync]}</span></div>
       </header>
 
       {demo && (
         <div className="demobar">
-          <span>You are in the demo. Nothing is saved.</span>
+          <span>You are in the demo. Nothing is saved, and tags use basic rules instead of AI.</span>
           <Link className="btn ink" href="/">Sign in with Google</Link>
         </div>
       )}
 
       <section className="hero">
-        <div className="card">
-          <div className="q">
-            <span className="eyebrow">{isToday ? "Log an hour" : fmtDay(view)}</span>
-            <h2>{isToday ? `${greeting}. ` : ""}What did you do <em>{hl(sel)} to {hl(sel + 1)}</em>?</h2>
+        <div className="card nowcard">
+          <span className="eyebrow">{isToday ? "Log an hour" : fmtDay(view)}</span>
+          <h2>{isToday ? `${greeting}. ` : ""}What did you do <em>{hl(defaultHour)} to {hl(defaultHour + 1)}</em>?</h2>
+          <p className="mute">{hasLogged(defaultEntry) ? `${defaultEntry!.items.length} pointer${defaultEntry!.items.length > 1 ? "s" : ""} logged for this hour.` : "Write a few pointers. Tags are filled in for you."}</p>
+          <div className="nowcta">
+            <button className="btn ink big" onClick={() => openHour(view, defaultHour)}>{hasLogged(defaultEntry) ? "Edit this hour" : "Log this hour"} <kbd>L</kbd></button>
+            {!hasLogged(defaultEntry) && hasLogged(entries[entryKey(view, defaultHour - 1)]) && (
+              <button className="btn big" onClick={() => sameAsLast(view, defaultHour)}>Same as last hour</button>
+            )}
           </div>
-          <div className="quick">
-            {prevHas && <button className="btn" onClick={sameAsLast}>Same as last hour <kbd>S</kbd></button>}
-            <button className="btn" onClick={() => setSel((s) => Math.min(23, s + 1))}>Next hour →</button>
-            {(hasLogged(cur) || cur.note) && <button className="btn" onClick={() => edit((e) => { e.a = {}; e.note = ""; })}>Clear this hour</button>}
-          </div>
-          {(Object.keys(CATS) as CatKey[]).map((ck) => {
-            const list = allActivities(custom).filter((a) => a.c === ck);
-            if (!list.length) return null;
-            return (
-              <div className="group" key={ck}>
-                <h3 style={{ ["--c" as string]: `var(${CATS[ck].v})` }}><i />{CATS[ck].name}</h3>
-                <div className="chips">
-                  {list.map((a) => {
-                    const on = (cur.a[a.id] ?? 0) > 0;
-                    return (
-                      <div key={a.id} className={`chip${on ? " on" : ""}${a.k ? " k" : ""}${justId === a.id && on ? " just" : ""}`} style={{ ["--c" as string]: `var(${CATS[ck].v})` }}>
-                        <button className="cl" onClick={() => toggle(a.id)} aria-pressed={on}>{a.l}</button>
-                        {on && a.k && (
-                          <span className="step">
-                            <button onClick={() => step(a.id, -1)} aria-label={`Fewer ${a.l}`}>−</button>
-                            <b>{cur.a[a.id]}</b>
-                            <button onClick={() => step(a.id, 1)} aria-label={`More ${a.l}`}>+</button>
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-          <form className="add" onSubmit={(e) => { e.preventDefault(); addCustom(customText); setCustomText(""); }}>
-            <input value={customText} onChange={(e) => setCustomText(e.target.value)} maxLength={30} placeholder="Something else? Add your own" aria-label="Add your own activity" />
-            <button className="btn ink" type="submit">Add</button>
-          </form>
-          <textarea
-            key={entryKey(view, sel)}
-            className="note"
-            maxLength={300}
-            defaultValue={cur.note}
-            onChange={(e) => edit((x) => { x.note = e.target.value; }, { slow: true })}
-            placeholder="Anything to remember? e.g. 5k in 28 min, fixed the flaky test"
-            aria-label="Note for this hour"
-          />
         </div>
 
         <aside className="card sum">
@@ -381,14 +389,16 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
           </div>
           <div>
             <div className="eyebrow" style={{ marginBottom: 9 }}>Where the time went</div>
-            <div className="split">{perSorted.map(([c, v]) => <i key={c} title={CATS[c].name} style={{ ["--c" as string]: `var(${CATS[c].v})`, ["--g" as string]: v }} />)}</div>
+            <div className="split">{perRoot.map(([id, v]) => <i key={id} title={id === "untagged" ? "Untagged" : idx.byId.get(id)?.name} style={{ ["--c" as string]: id === "untagged" ? UNTAGGED_COLOR : colorOf(idx, id), ["--g" as string]: v }} />)}</div>
             <div className="legend">
-              {perSorted.length === 0 && <span style={{ color: "var(--faint)" }}>Log an hour and it shows up here.</span>}
-              {perSorted.map(([c, v]) => <span key={c} style={{ ["--c" as string]: `var(${CATS[c].v})` }}><i />{CATS[c].name}<em>{Math.round(v * 10) / 10}h</em></span>)}
+              {perRoot.length === 0 && <span style={{ color: "var(--faint)" }}>Log an hour and it shows up here.</span>}
+              {perRoot.map(([id, v]) => (
+                <span key={id} style={{ ["--c" as string]: id === "untagged" ? UNTAGGED_COLOR : colorOf(idx, id) }}><i />{id === "untagged" ? "Untagged" : idx.byId.get(id)?.name}<em>{Math.round(v * 10) / 10}h</em></span>
+              ))}
             </div>
           </div>
           <div className="tiles">
-            {([["PRs raised", sums.pr], ["Applications", sums.apply], ["Chats with connections", sums.conn]] as const).map(([l, n]) => (
+            {([["Pointers", pointers], ["Areas", perRoot.filter(([id]) => id !== "untagged").length], ["Open hours", Math.max(0, left)]] as const).map(([l, n]) => (
               <div className="tile" key={l}><b>{n}</b><small>{l}</small></div>
             ))}
           </div>
@@ -398,7 +408,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
               {week.map((d) => {
                 const n = Object.values(entries).filter((e) => e.day === d && hasLogged(e)).length;
                 return (
-                  <button key={d} className={`${d === view ? "cur" : ""} ${d === today ? "today" : ""}`} onClick={() => goDay(d)} aria-label={`${fmtDay(d)}, ${n} hours logged`}>
+                  <button key={d} className={`${d === view ? "cur" : ""} ${d === today ? "today" : ""}`} onClick={() => setView(d)} aria-label={`${fmtDay(d)}, ${n} hours logged`}>
                     <i style={{ ["--h" as string]: `${Math.max(6, Math.round((n / 18) * 100))}%` }} />
                     <small>{"SMTWTFS"[new Date(d + "T12:00:00").getDay()]}</small>
                   </button>
@@ -414,53 +424,72 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
           <h2>{isToday ? "Your day so far" : fmtDay(view)}</h2>
           <button className="btn" onClick={() => setAllDay((v) => !v)}>{allDay ? "Hide night hours" : "Show night hours"}</button>
         </div>
-        <div className={`slots${loaded ? " enter" : ""}`}>
-          {hours.map((h, i) => {
-            const e = entries[entryKey(view, h)];
-            const has = hasLogged(e);
-            const isNow = isToday && h === nowH;
-            const past = view < today || (isToday && h < nowH);
-            const first = has ? activityById(custom, Object.keys(e!.a)[0]) : null;
-            return (
-              <button
-                key={h}
-                className={`slot${has ? " done" : ""}${isNow ? " now" : ""}${past && !has ? " missed" : ""}${!past && !isNow ? " future" : ""}${h === sel ? " sel" : ""}`}
-                style={{ ["--i" as string]: i, ...(first ? { ["--c1" as string]: `var(${CATS[first.c].v})` } : {}) }}
-                onClick={() => { setSel(h); if (window.innerWidth < 860) window.scrollTo({ top: 0, behavior: "smooth" }); }}
-              >
-                <span className="t">{hl(h)}</span>
-                <span className="rail"><i /></span>
-                <span className="body">
-                  {has ? (
-                    <>
-                      {Object.keys(e!.a).map((id) => {
-                        const a = activityById(custom, id);
-                        return <span key={id} className="tag" style={{ ["--c" as string]: `var(${CATS[a.c].v})` }}>{a.l}{a.k && e!.a[id] > 0 ? <b> ×{e!.a[id]}</b> : null}</span>;
-                      })}
-                      {e!.note && <span className="nt">{e!.note}</span>}
-                    </>
-                  ) : (
-                    <span className="empty">{isNow ? "Happening now" : past ? "Tap to log" : "Plan ahead"}</span>
-                  )}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {!loaded ? (
+          <div className="tlload"><ClockLoader size={48} label="Loading your day" /></div>
+        ) : (
+          <div className="slots enter" key={view}>
+            {hours.map((h, i) => {
+              const e = entries[entryKey(view, h)];
+              const has = hasLogged(e);
+              const isNow = isToday && h === nowH;
+              const past = view < today || (isToday && h < nowH);
+              const firstTag = has ? e!.items.flatMap((x) => x.tags)[0] : undefined;
+              return (
+                <button
+                  key={h}
+                  className={`slot${has ? " done" : ""}${isNow ? " now" : ""}${past && !has ? " missed" : ""}${!past && !isNow ? " future" : ""}`}
+                  style={{ ["--i" as string]: i, ...(firstTag ? { ["--c1" as string]: colorOf(idx, firstTag) } : {}) }}
+                  onClick={() => openHour(view, h)}
+                >
+                  <span className="t">{hl(h)}</span>
+                  <span className="rail"><i /></span>
+                  <span className="body">
+                    {has ? (
+                      <span className="lines">
+                        {e!.items.filter((x) => x.text.trim()).map((x) => (
+                          <span className="line" key={x.id}>
+                            <span className="dots">{(x.tags.length ? [...new Set(x.tags.map((t) => idx.byId.get(t) && colorOf(idx, t)).filter(Boolean))] : [UNTAGGED_COLOR]).map((c) => <i key={c as string} style={{ background: c as string }} />)}</span>
+                            <span className="txt">{x.text}</span>
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="empty">{isNow ? "Happening now" : past ? "Tap to log" : "Plan ahead"}</span>
+                    )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <div ref={settingsRef}>
-        <Settings
-          open={showSettings}
-          onToggle={setShowSettings}
-          demo={demo}
-          sb={sb}
-          userId={userId}
-          profile={profile}
-          saveProfile={saveProfile}
-        />
+        <Settings open={showSettings} onToggle={setShowSettings} demo={demo} sb={sb} userId={userId} profile={profile} saveProfile={saveProfile} />
       </div>
-      <div className="foot">Tap what you did. It saves itself. Use ← → to move between hours.</div>
+      <div className="foot">Press L to log the current hour.</div>
+
+      {dialog && (
+        <LogDialog
+          day={dialog.day}
+          dayLabel={fmtDay(dialog.day)}
+          hour={dialog.hour}
+          entry={dlgEntry}
+          prevHas={hasLogged(entries[entryKey(dialog.day, dialog.hour - 1)])}
+          idx={idx}
+          tags={tags}
+          pending={pending}
+          failed={failed}
+          aiMode={aiMode}
+          saving={sync === "saving"}
+          onItems={(items, slow) => putItems(dialog.day, dialog.hour, items, slow)}
+          onTag={(ids) => runTagging(dialog.day, dialog.hour, ids)}
+          onCreateTag={createTag}
+          onSame={() => sameAsLast(dialog.day, dialog.hour)}
+          onNav={(d) => setDialog((cur) => (cur ? { ...cur, hour: Math.min(23, Math.max(0, cur.hour + d)) } : cur))}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </main>
   );
 }

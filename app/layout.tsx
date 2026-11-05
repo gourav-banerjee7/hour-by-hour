@@ -6,9 +6,15 @@ const display = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-disp
 const body = Figtree({ subsets: ["latin"], variable: "--font-body", weight: ["400", "500", "600", "700"] });
 const mono = DM_Mono({ subsets: ["latin"], variable: "--font-mono", weight: ["400", "500"] });
 
+const SITE = "https://hour-by-hour.xyz";
+const DESC = "Jot down what you did each hour. AI sorts it into tags and sub-tags, so you can see your week broad or deep.";
+
 export const metadata: Metadata = {
-  title: "Hour by Hour",
-  description: "Log what you did every hour, in one tap.",
+  metadataBase: new URL(SITE),
+  title: { default: "Hour by Hour", template: "%s · Hour by Hour" },
+  description: DESC,
+  openGraph: { type: "website", url: SITE, siteName: "Hour by Hour", title: "Hour by Hour: know where every hour went", description: DESC },
+  twitter: { card: "summary_large_image", title: "Hour by Hour: know where every hour went", description: DESC },
   appleWebApp: { capable: true, title: "Hour by Hour", statusBarStyle: "default" },
 };
 export const viewport: Viewport = { themeColor: "#F4F5FB", viewportFit: "cover", width: "device-width", initialScale: 1 };

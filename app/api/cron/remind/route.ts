@@ -21,8 +21,8 @@ async function run(req: Request) {
   (subs ?? []).forEach((s) => byUser.set(s.user_id, [...(byUser.get(s.user_id) ?? []), s]));
 
   const since = addDays(new Date().toISOString().slice(0, 10), -2);
-  const { data: logs } = await db.from("hour_logs").select("user_id,day,hour,activities").in("user_id", [...byUser.keys()]).gte("day", since);
-  const logged = new Set((logs ?? []).filter((l) => Object.keys(l.activities ?? {}).length).map((l) => `${l.user_id}|${l.day}|${l.hour}`));
+  const { data: logs } = await db.from("hour_logs").select("user_id,day,hour,items").in("user_id", [...byUser.keys()]).gte("day", since);
+  const logged = new Set((logs ?? []).filter((l) => Array.isArray(l.items) && l.items.some((i: { text?: string }) => i?.text?.trim())).map((l) => `${l.user_id}|${l.day}|${l.hour}`));
 
   let sent = 0;
   const dead: string[] = [];
