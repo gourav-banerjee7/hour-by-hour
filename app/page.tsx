@@ -42,6 +42,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
           <span key={t} className="tag" style={{ ["--c" as string]: `var(--${c})`, animationDelay: `${i * 0.35}s` }}>{t}</span>
         ))}
       </div>
+      <nav className="legalfoot" aria-label="Legal">
+        <Link href="/privacy">Privacy</Link>
+        <Link href="/terms">Terms</Link>
+      </nav>
     </main>
   );
 }

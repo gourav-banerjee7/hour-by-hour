@@ -564,7 +564,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       <div ref={settingsRef}>
         <Settings open={showSettings} onToggle={setShowSettings} demo={demo} sb={sb} gcal={gcal} onConnect={connectGoogle} onDisconnect={disconnectGoogle} onSyncAll={setSyncAll} />
       </div>
-      <div className="foot">Press L to log the current hour.</div>
+      <div className="foot">Press L to log the current hour. · <Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link></div>
 
       {dialog && (
         <LogDialog
