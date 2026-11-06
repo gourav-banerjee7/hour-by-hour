@@ -4,7 +4,7 @@ export type Reminder = {
   id: string;
   title: string;
   notes: string;
-  due_date: string;
+  due_date: string | null;
   due_time: string | null;
   done: boolean;
   done_at: string | null;
@@ -12,6 +12,8 @@ export type Reminder = {
   source_day: string | null;
   source_hour: number | null;
   source_key: string | null;
+  plan_block_id: string | null;
+  plan_text: string | null;
   gcal_event_id: string | null;
   created_at: string;
 };
@@ -21,11 +23,14 @@ export type Suggestion = {
   key: string;
   type: "reminder" | "calendar_event";
   title: string;
-  date: string;
+  date: string | null;
   time: string | null;
   end_time: string | null;
   notes: string;
   reason: string;
+  /** set when the suggestion comes from a planner board note */
+  block_id?: string | null;
+  quote?: string | null;
 };
 
 export const fmtTime = (t: string | null) => {
@@ -34,33 +39,36 @@ export const fmtTime = (t: string | null) => {
   return `${h % 12 || 12}${m ? ":" + pad(m) : ""} ${h < 12 ? "AM" : "PM"}`;
 };
 
-export function fmtDate(d: string, today: string) {
+export function fmtDate(d: string | null, today: string) {
+  if (!d) return "No date";
   if (d === today) return "Today";
   if (d === addDays(today, 1)) return "Tomorrow";
   if (d === addDays(today, -1)) return "Yesterday";
   return new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
-export const fmtDue = (d: string, t: string | null, today: string) => `${fmtDate(d, today)}${t ? " · " + fmtTime(t) : ""}`;
+export const fmtDue = (d: string | null, t: string | null, today: string) => (d ? `${fmtDate(d, today)}${t ? " · " + fmtTime(t) : ""}` : "No date");
 
 export function sortReminders(list: Reminder[]) {
-  return [...list].sort((a, b) => (a.due_date + (a.due_time ?? "99")).localeCompare(b.due_date + (b.due_time ?? "99")) || a.created_at.localeCompare(b.created_at));
+  const key = (r: Reminder) => (r.due_date ? "0" + r.due_date + (r.due_time ?? "99") : "1");
+  return [...list].sort((a, b) => key(a).localeCompare(key(b)) || a.created_at.localeCompare(b.created_at));
 }
 
-export type Group = { key: "overdue" | "today" | "tomorrow" | "later"; label: string; items: Reminder[] };
+export type Group = { key: "overdue" | "today" | "tomorrow" | "later" | "someday"; label: string; items: Reminder[] };
 export function groupOpen(list: Reminder[], today: string): Group[] {
   const open = sortReminders(list.filter((r) => !r.done));
   const tomorrow = addDays(today, 1);
   const g: Group[] = [
-    { key: "overdue", label: "Overdue", items: open.filter((r) => r.due_date < today) },
+    { key: "overdue", label: "Overdue", items: open.filter((r) => r.due_date && r.due_date < today) },
     { key: "today", label: "Today", items: open.filter((r) => r.due_date === today) },
     { key: "tomorrow", label: "Tomorrow", items: open.filter((r) => r.due_date === tomorrow) },
-    { key: "later", label: "Later", items: open.filter((r) => r.due_date > tomorrow) },
+    { key: "later", label: "Later", items: open.filter((r) => r.due_date && r.due_date > tomorrow) },
+    { key: "someday", label: "No date", items: open.filter((r) => !r.due_date) },
   ];
   return g.filter((x) => x.items.length);
 }
 
 export const suggestionKey = (s: Pick<Suggestion, "title" | "date" | "time">) => {
-  const str = `${s.title.toLowerCase().trim()}|${s.date}|${s.time ?? ""}`;
+  const str = `${s.title.toLowerCase().trim()}|${s.date ?? ""}|${s.time ?? ""}`;
   let h = 5381;
   for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
   return "ai:" + (h >>> 0).toString(36);

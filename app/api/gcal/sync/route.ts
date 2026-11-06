@@ -27,6 +27,7 @@ export async function POST(req: Request) {
     if (b.action === "upsert") {
       const { data: r } = await sb.from("reminders").select("id,title,notes,due_date,due_time,gcal_event_id").eq("id", b.reminderId).maybeSingle();
       if (!r) return NextResponse.json({ error: "not_found" }, { status: 404 });
+      if (!r.due_date) return NextResponse.json({ error: "no_date" }, { status: 400 });
       const ev = await upsertEvent(userId, { title: r.title, notes: r.notes, date: r.due_date, time: r.due_time, tz: b.tz || "UTC", popupMinutes: 0, defaultMinutes: 15 }, r.gcal_event_id);
       await sb.from("reminders").update({ gcal_event_id: ev.id }).eq("id", r.id);
       return NextResponse.json({ eventId: ev.id, link: ev.link });

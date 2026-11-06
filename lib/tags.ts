@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type Tag = { id: string; parent_id: string | null; name: string; color: string | null };
-export type Item = { id: string; text: string; tags: string[]; manual?: boolean; tt?: string };
+/** actions = ids of the actions this pointer was worked on for */
+export type Item = { id: string; text: string; tags: string[]; manual?: boolean; tt?: string; actions?: string[] };
 export type Entry = { day: string; hour: number; items: Item[] };
 
 export const PALETTE = ["#2F7BFF", "#9A5BFF", "#0FA37F", "#F2517C", "#E8900B", "#0DA5B8", "#D246A6", "#7E8F1F"];

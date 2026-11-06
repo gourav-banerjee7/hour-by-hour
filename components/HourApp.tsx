@@ -8,8 +8,10 @@ import {
 } from "@/lib/tags";
 import { heuristicPaths } from "@/lib/heuristic";
 import { addDays, entryKey, hl, ymd } from "@/lib/time";
-import Settings from "./Settings";
-import RemindersCard, { type NewReminder } from "./RemindersCard";
+import SettingsDrawer from "./SettingsDrawer";
+import ActionsCard, { type NewReminder, type LogRef } from "./ActionsCard";
+import PlannerBoard from "./PlannerBoard";
+import { newBlockId, type Block } from "@/lib/plan";
 import type { ActionsApi } from "./ActionsPanel";
 import { heuristicActions, type Reminder } from "@/lib/reminders";
 import LogDialog from "./LogDialog";
@@ -31,6 +33,7 @@ const SYNC_TEXT: Record<SyncState, string> = {
   error: "Offline, will retry",
 };
 const OUTBOX_KEY = "hbh_outbox_v2";
+const SYNC_SHORT: Record<SyncState, string> = { local: "Demo", saving: "Saving…", synced: "Synced", error: "Offline" };
 
 export default function HourApp(props: Props) {
   const [mounted, setMounted] = useState(false);
@@ -39,44 +42,55 @@ export default function HourApp(props: Props) {
   return <Inner {...props} />;
 }
 
-function seedDemo(): { entries: Record<string, Entry>; tags: Tag[] } {
+function seedAll(): { entries: Record<string, Entry>; tags: Tag[]; reminders: Reminder[]; blocks: Block[] } {
   let tags: Tag[] = [];
   const mk = (path: string[]) => { const r = ensureLocal(tags, path); tags = [...tags, ...r.created]; return r.id!; };
   const today = ymd(new Date());
   const yesterday = addDays(today, -1);
   const now = new Date().getHours();
-  const rows: [number, [string, string[][]][]][] = [
+
+  const b1 = newBlockId(), b2 = newBlockId(), b3 = newBlockId(), b4 = newBlockId(), b5 = newBlockId();
+  const blocks: Block[] = [
+    { id: b1, text: "Ship onboarding v2 by Friday\n- fix the empty states\n- write the release notes", x: 0.03, y: 18, c: "blue" },
+    { id: b2, text: "Idea: a Sunday weekly review ritual. 25 min focus block before lunch.", x: 0.37, y: 34, c: "ink" },
+    { id: b3, text: "Talk to Priya about platform team roles", x: 0.7, y: 14, c: "green" },
+    { id: b4, text: "Health: run 3x this week, badminton Thursday evening", x: 0.04, y: 250, c: "pink" },
+    { id: b5, text: "Interview prep: system design, practise 2 problems a day", x: 0.42, y: 200, c: "orange" },
+  ];
+  const mkAction = (title: string, due_date: string | null, due_time: string | null, extra: Partial<Reminder> = {}): Reminder => ({
+    id: newId(), title, notes: "", due_date, due_time, done: false, done_at: null, source: "manual", source_day: null, source_hour: null, source_key: null,
+    plan_block_id: null, plan_text: null, gcal_event_id: null, created_at: new Date().toISOString(), ...extra,
+  });
+  const fixEmpty = mkAction("Fix the empty states", null, null, { plan_block_id: b1, plan_text: "fix the empty states" });
+  const notes = mkAction("Write the release notes", addDays(today, 2), null, { plan_block_id: b1, plan_text: "write the release notes" });
+  const court = mkAction("Book badminton court", today, "18:00", { plan_block_id: b4, plan_text: "badminton Thursday evening" });
+  const reminders: Reminder[] = [fixEmpty, notes, court, mkAction("Send the Q4 plan to Priya", addDays(today, 1), null, { source: "ai" })];
+
+  const rows: [number, [string, string[][], string[]?][]][] = [
     [8, [["Porridge and a long coffee", [["Life", "Meals"]]]]],
     [9, [["Fixed the flaky payments test, then opened a PR for the retry logic", [["Work", "Engineering", "Payments"]]], ["Opened PR #482", [["Work", "Code review"]]]]],
-    [10, [["Sprint planning", [["Work", "Meetings"]]], ["Design review for the new onboarding flow, left a lot of comments on the empty states", [["Work", "Code review", "Design"]]]]],
+    [10, [["Sprint planning", [["Work", "Meetings"]]], ["Design review for the new onboarding flow, left a lot of comments on the empty states", [["Work", "Code review", "Design"]], [fixEmpty.id]]]],
     [12, [["5k along the river, felt strong", [["Health", "Running"]]]]],
     [13, [["Lunch and a YouTube spiral about espresso machines", [["Life", "Meals"], ["Entertainment", "YouTube"]]]]],
     [14, [["Sent 2 job applications and followed up with a referral", [["Career", "Job search"]]], ["Coffee chat with Priya about platform teams", [["Career", "Networking"]]]]],
+    [15, [["Fixed two of the empty states, three to go", [["Work", "Engineering"]], [fixEmpty.id]]]],
     [16, [["Badminton doubles, won two sets", [["Health", "Sport"]]]]],
     [17, [["Gym: legs", [["Health", "Gym"]]]]],
   ];
   const entries: Record<string, Entry> = {};
   for (const [h, list] of rows) {
-    const items: Item[] = list.map(([text, paths]) => ({ id: newId(), text, tags: paths.map(mk), tt: text }));
+    const items: Item[] = list.map(([text, paths, acts]) => ({ id: newId(), text, tags: paths.map(mk), tt: text, ...(acts ? { actions: acts } : {}) }));
     entries[entryKey(yesterday, h)] = { day: yesterday, hour: h, items };
     if (h < now) entries[entryKey(today, h)] = { day: today, hour: h, items: items.map((i) => ({ ...i, id: newId() })) };
   }
-  return { entries, tags };
-}
-
-function seedReminders(): Reminder[] {
-  const today = ymd(new Date());
-  const mk = (title: string, due_date: string, due_time: string | null, source: "manual" | "ai" = "manual"): Reminder => ({
-    id: newId(), title, notes: "", due_date, due_time, done: false, done_at: null, source, source_day: null, source_hour: null, source_key: null, gcal_event_id: null, created_at: new Date().toISOString(),
-  });
-  return [mk("Send the Q4 plan to Priya", addDays(today, 1), null, "ai"), mk("Book badminton court", today, "18:00"), mk("Follow up on the referral", addDays(today, 3), null, "ai")];
+  return { entries, tags, reminders, blocks };
 }
 
 function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const demo = mode === "demo";
   const sb = useMemo(() => (demo ? null : supabaseBrowser()), [demo]);
   const START = 6;
-  const seed = useMemo(() => (demo ? seedDemo() : null), [demo]);
+  const seed = useMemo(() => (demo ? seedAll() : null), [demo]);
 
   const [today, setToday] = useState(() => ymd(new Date()));
   const [view, setView] = useState(today);
@@ -88,11 +102,14 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const [loaded, setLoaded] = useState(demo);
   const [animIn, setAnimIn] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [blocks, setBlocks] = useState<Block[]>(() => seed?.blocks ?? []);
+  const [boardOpen, setBoardOpen] = useState(false);
+  const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
   const [minute, setMinute] = useState(() => new Date().getMinutes());
   const [dialog, setDialog] = useState<{ day: string; hour: number } | null>(null);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [failed, setFailed] = useState<Set<string>>(new Set());
-  const [reminders, setReminders] = useState<Reminder[]>(() => (demo ? seedReminders() : []));
+  const [reminders, setReminders] = useState<Reminder[]>(() => seed?.reminders ?? []);
   const [notice, setNotice] = useState<string | null>(null);
   const remindersRef = useRef(reminders);
   const [aiMode, setAiMode] = useState<"ai" | "fallback" | null>(null);
@@ -101,7 +118,9 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const tagsRef = useRef(tags);
   const outbox = useRef<Map<string, Pending>>(new Map());
   const flushTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const settingsRef = useRef<HTMLDivElement>(null);
+  const blocksRef = useRef(blocks);
+  const planTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const planDirty = useRef(false);
   const idx = useMemo(() => indexTags(tags), [tags]);
 
   const setReminderList = (u: (p: Reminder[]) => Reminder[]) => { const n = u(remindersRef.current); remindersRef.current = n; setReminders(n); };
@@ -152,7 +171,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     if (!targets.length) return;
     setPending((p) => new Set([...p, ...targets.map((t) => t.id)]));
     setFailed((f) => { const n = new Set(f); targets.forEach((t) => n.delete(t.id)); return n; });
-    let results: { id: string; tags: string[] }[] = [];
+    let results: { id: string; tags: string[]; actions?: string[] }[] = [];
     let ok = true;
     try {
       if (demo) {
@@ -171,7 +190,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       } else {
         const r = await fetch("/api/tag", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: targets.map((t) => ({ id: t.id, text: t.text })) }) });
         if (!r.ok) throw new Error("tag failed");
-        const j = (await r.json()) as { results: { id: string; tags: string[] }[]; created: Tag[]; source: "ai" | "fallback" };
+        const j = (await r.json()) as { results: { id: string; tags: string[]; actions?: string[] }[]; created: Tag[]; source: "ai" | "fallback" };
         results = j.results;
         if (j.created?.length) setTagList((prev) => mergeTags(prev, j.created));
         setAiMode(j.source === "ai" ? "ai" : "fallback");
@@ -184,7 +203,8 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
         const r = results.find((x) => x.id === i.id);
         const asked = targets.find((t) => t.id === i.id);
         if (!r || !asked || i.manual || i.text.trim() !== asked.text.trim()) return i;
-        return { ...i, tags: r.tags, tt: i.text.trim() };
+        const acts = [...new Set([...(i.actions ?? []), ...(r.actions ?? [])])];
+        return { ...i, tags: r.tags, tt: i.text.trim(), ...(acts.length ? { actions: acts } : {}) };
       });
       putItems(day, hour, items);
     }
@@ -204,6 +224,24 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     return r.id;
   };
 
+  /* ---------- planner board ---------- */
+  const PLAN_KEY = `hbh_plan_v1_${userId ?? "demo"}`;
+  const savePlan = useCallback(async () => {
+    if (!sb || !userId) return;
+    const { error } = await sb.from("plans").upsert({ user_id: userId, blocks: blocksRef.current }, { onConflict: "user_id" });
+    if (error) { setSync("error"); return; }
+    planDirty.current = false;
+  }, [sb, userId]);
+  const changeBlocks = (next: Block[]) => {
+    blocksRef.current = next;
+    setBlocks(next);
+    if (demo) return;
+    planDirty.current = true;
+    try { localStorage.setItem(PLAN_KEY, JSON.stringify(next)); } catch {}
+    clearTimeout(planTimer.current);
+    planTimer.current = setTimeout(savePlan, 800);
+  };
+
   /* ---------- load + realtime ---------- */
   useEffect(() => {
     if (!sb || !userId) return;
@@ -212,12 +250,17 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       const saved = JSON.parse(localStorage.getItem(OUTBOX_KEY) || "[]") as [string, Pending][];
       saved.forEach(([k, v]) => outbox.current.set(k, v));
     } catch {}
+    try {
+      const saved = localStorage.getItem(PLAN_KEY);
+      if (saved) { const b = JSON.parse(saved) as Block[]; blocksRef.current = b; setBlocks(b); }
+    } catch {}
     const since = addDays(ymd(new Date()), -13);
     Promise.all([
       sb.from("hour_logs").select("day,hour,items").gte("day", since),
       sb.from("tags").select("id,parent_id,name,color"),
       sb.from("reminders").select("*").order("due_date").limit(500),
-    ]).then(([logs, tg, rm]) => {
+      sb.from("plans").select("blocks").eq("user_id", userId).maybeSingle(),
+    ]).then(([logs, tg, rm, pl]) => {
       if (!alive) return;
       if (logs.error) { setSync("error"); setLoaded(true); return; }
       const map: Record<string, Entry> = {};
@@ -226,6 +269,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       setAll(map);
       setTagList(() => (tg.data ?? []) as Tag[]);
       setReminderList(() => (rm.data ?? []) as Reminder[]);
+      if (pl.data && !planDirty.current) { const b = (pl.data.blocks as Block[]) ?? []; blocksRef.current = b; setBlocks(b); }
       setLoaded(true);
       if (outbox.current.size) flush();
     });
@@ -246,6 +290,11 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       .on("postgres_changes", { event: "*", schema: "public", table: "reminders", filter: `user_id=eq.${userId}` }, (p) => {
         if (p.eventType === "DELETE") { const id = (p.old as { id?: string }).id; if (id) setReminderList((prev) => prev.filter((r) => r.id !== id)); }
         else { const r = p.new as Reminder; setReminderList((prev) => prev.some((x) => x.id === r.id) ? prev.map((x) => (x.id === r.id ? r : x)) : [...prev, r]); }
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "plans", filter: `user_id=eq.${userId}` }, (p) => {
+        if (planDirty.current || p.eventType === "DELETE") return;
+        const b = ((p.new as { blocks?: Block[] }).blocks ?? []) as Block[];
+        if (JSON.stringify(b) !== JSON.stringify(blocksRef.current)) { blocksRef.current = b; setBlocks(b); }
       })
       .subscribe();
     return () => { alive = false; sb.removeChannel(ch); };
@@ -271,13 +320,15 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     }
     const d = q.get("d"), h = q.get("h");
     if (d && h && /^\d{4}-\d{2}-\d{2}$/.test(d)) { setView(d); setDialog({ day: d, hour: Math.min(23, Math.max(0, +h || 0)) }); history.replaceState(null, "", "/"); }
+    // on a phone the open board is a full-screen sheet, so never reopen it by itself
+    try { if (localStorage.getItem("hbh_board_open") === "1" && !window.matchMedia("(max-width: 720px)").matches) setBoardOpen(true); } catch {}
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (sb && userId && tz && tz !== initialProfile.timezone) {
       sb.from("profiles").update({ timezone: tz }).eq("user_id", userId).then(() => setProfile((p) => ({ ...p, timezone: tz })));
     }
-    const online = () => flush();
+    const online = () => { flush(); if (planDirty.current) savePlan(); };
     window.addEventListener("online", online);
-    const retry = setInterval(() => { if (outbox.current.size) flush(); }, 20000);
+    const retry = setInterval(() => { if (outbox.current.size) flush(); if (planDirty.current) savePlan(); }, 20000);
     const t = setTimeout(() => setAnimIn(true), 80);
     return () => { window.removeEventListener("online", online); clearInterval(retry); clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -350,9 +401,9 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     return false;
   };
 
-  type NewFields = NewReminder & { notes?: string; source?: "manual" | "ai"; source_day?: string | null; source_hour?: number | null; source_key?: string | null };
+  type NewFields = NewReminder & { notes?: string; source?: "manual" | "ai"; source_day?: string | null; source_hour?: number | null; source_key?: string | null; plan_block_id?: string | null; plan_text?: string | null };
   const addReminder = async (f: NewFields, toCalendar: boolean): Promise<"added" | "exists" | "error"> => {
-    const base = { title: f.title, notes: f.notes ?? "", due_date: f.due_date, due_time: f.due_time, source: f.source ?? "manual", source_day: f.source_day ?? null, source_hour: f.source_hour ?? null, source_key: f.source_key ?? null };
+    const base = { title: f.title, notes: f.notes ?? "", due_date: f.due_date, due_time: f.due_time, source: f.source ?? "manual", source_day: f.source_day ?? null, source_hour: f.source_hour ?? null, source_key: f.source_key ?? null, plan_block_id: f.plan_block_id ?? null, plan_text: f.plan_text ?? null };
     if (demo) {
       if (base.source_key && remindersRef.current.some((x) => x.source_key === base.source_key)) return "exists";
       setReminderList((p) => [...p, { ...base, id: newId(), done: false, done_at: null, gcal_event_id: null, created_at: new Date().toISOString() }]);
@@ -362,7 +413,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     const { data, error } = await sb.from("reminders").insert({ user_id: userId, ...base }).select("*").single();
     if (error) return error.code === "23505" ? "exists" : "error";
     setReminderList((p) => (p.some((x) => x.id === data.id) ? p : [...p, data as Reminder]));
-    if (toCalendar && profile.gcal_connected) await syncReminder(data.id);
+    if (toCalendar && profile.gcal_connected && base.due_date) await syncReminder(data.id);
     return "added";
   };
   const toggleDone = async (r: Reminder) => {
@@ -380,7 +431,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     setReminderList((p) => p.map((x) => (x.id === r.id ? { ...x, ...patch } : x)));
     if (!sb) return;
     await sb.from("reminders").update(patch).eq("id", r.id);
-    if (r.gcal_event_id || (profile.gcal_connected && profile.gcal_sync_all)) await syncReminder(r.id);
+    if (r.gcal_event_id || (profile.gcal_connected && profile.gcal_sync_all && patch.due_date)) await syncReminder(r.id);
   };
   const connectGoogle = () => { location.href = "/api/google/connect"; };
   const disconnectGoogle = async () => {
@@ -393,7 +444,46 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     setProfile((p) => ({ ...p, gcal_sync_all: v }));
     if (!sb || !userId) return;
     await sb.from("profiles").update({ gcal_sync_all: v }).eq("user_id", userId);
-    if (v) for (const r of remindersRef.current.filter((x) => !x.done && x.due_date >= today && !x.gcal_event_id)) await syncReminder(r.id);
+    if (v) for (const r of remindersRef.current.filter((x) => !x.done && !!x.due_date && x.due_date >= today && !x.gcal_event_id)) await syncReminder(r.id);
+  };
+
+  /* ---------- plan, actions and logs working together ---------- */
+  const makeActionFromBlock = async (b: Block, snippet: string | null) => {
+    const title = (snippet || b.text.split("\n")[0] || b.text).trim().slice(0, 200);
+    await addReminder({ title, due_date: null, due_time: null, source: "manual", plan_block_id: b.id, plan_text: snippet }, false);
+  };
+  const createActionForLog = async (title: string): Promise<string | null> => {
+    const before = new Set(remindersRef.current.map((r) => r.id));
+    await addReminder({ title, due_date: null, due_time: null, source: "manual" }, false);
+    return remindersRef.current.find((r) => !before.has(r.id))?.id ?? null;
+  };
+  const showInPlan = (id: string) => { setBoardOpen(true); try { localStorage.setItem("hbh_board_open", "1"); } catch {} setFocus((f) => ({ id, n: (f?.n ?? 0) + 1 })); };
+  const logsByAction = useMemo(() => {
+    const m: Record<string, LogRef[]> = {};
+    Object.values(entries).forEach((e) => e.items.forEach((i) => (i.actions ?? []).forEach((a) => { (m[a] ??= []).push({ day: e.day, hour: e.hour, text: i.text }); })));
+    Object.values(m).forEach((l) => l.sort((a, b) => (b.day + String(b.hour).padStart(2, "0")).localeCompare(a.day + String(a.hour).padStart(2, "0"))));
+    return m;
+  }, [entries]);
+  const blockIds = useMemo(() => new Set(blocks.map((b) => b.id)), [blocks]);
+  const nowIso = () => { const n = new Date(); return `${ymd(n)}T${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`; };
+
+  const baseApi = {
+    demo, today, gcal, connectGoogle,
+    addEvent: async (sg: { title: string; notes: string; date: string | null; time: string | null; end_time: string | null }) => {
+      const { ok, json } = await post("/api/gcal/sync", { action: "event", title: sg.title, notes: sg.notes, date: sg.date, time: sg.time, endTime: sg.end_time, tz: tz() });
+      if (!ok) calendarProblem(json.error);
+      return { ok, link: json.link, error: json.error };
+    },
+  };
+  const planApi: ActionsApi = {
+    ...baseApi,
+    generate: async () => {
+      const list = blocksRef.current.filter((b) => b.text.trim());
+      if (demo) return { actions: heuristicActions(list.map((b) => b.text), today).map((a, i) => ({ ...a, block_id: list[i]?.id ?? null })), source: "fallback" };
+      const r = await fetch("/api/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode: "plan", items: list.map((b) => b.text), ids: list.map((b) => b.id), now: nowIso(), tz: tz() }) });
+      return r.ok ? await r.json() : null;
+    },
+    addReminder: (sg, toCal) => addReminder({ title: sg.title, notes: sg.notes, due_date: sg.date, due_time: sg.time, source: "ai", source_key: sg.key, plan_block_id: sg.block_id ?? null, plan_text: sg.quote ?? null }, toCal),
   };
 
   /* ---------- keyboard ---------- */
@@ -429,15 +519,15 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
           <button onClick={() => setView(addDays(view, 1))} aria-label="Next day">›</button>
         </div>
         {!demo && <Link className="btn pill" href="/insights">Insights</Link>}
-        <button className="btn pill" onClick={() => { setShowSettings(true); setTimeout(() => settingsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }}>
-          {demo ? "Settings" : firstName || "Settings"}
+        <div className="syncpill" data-s={sync} title={SYNC_TEXT[sync]}><b /><span>{SYNC_SHORT[sync]}</span></div>
+        <button className="avatar" onClick={() => setShowSettings(true)} aria-label="Settings and account">
+          {demo ? <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.7" /><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg> : (firstName[0] ?? "•").toUpperCase()}
         </button>
-        <div className="syncpill" data-s={sync}><b /><span>{SYNC_TEXT[sync]}</span></div>
       </header>
 
       {demo && (
         <div className="demobar">
-          <span>You are in the demo. Nothing is saved, and tags use basic rules instead of AI.</span>
+          <span>You are in the demo. Nothing is saved, and AI features use basic rules.</span>
           <Link className="btn ink" href="/">Sign in with Google</Link>
         </div>
       )}
@@ -449,122 +539,145 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
         </div>
       )}
 
-      <RemindersCard
-        reminders={reminders}
-        today={today}
-        nowTime={`${String(new Date().getHours()).padStart(2, "0")}:${String(minute).padStart(2, "0")}`}
-        gcal={gcal}
-        onAdd={async (r, toCal) => { await addReminder(r, toCal); }}
-        onToggle={toggleDone}
-        onDelete={removeReminder}
-        onUpdate={updateReminder}
+      <PlannerBoard
+        blocks={blocks}
+        onChange={changeBlocks}
+        actions={reminders}
+        onToggleAction={toggleDone}
+        onMakeAction={makeActionFromBlock}
+        planApi={planApi}
+        open={boardOpen}
+        onOpen={(v) => { setBoardOpen(v); try { localStorage.setItem("hbh_board_open", v ? "1" : "0"); } catch {} }}
+        focus={focus}
       />
 
-      <section className="hero">
-        <div className="card nowcard">
-          <span className="eyebrow">{isToday ? "Log an hour" : fmtDay(view)}</span>
-          <h2>{isToday ? `${greeting}. ` : ""}What did you do <em>{hl(defaultHour)} to {hl(defaultHour + 1)}</em>?</h2>
-          <p className="mute">{hasLogged(defaultEntry) ? `${defaultEntry!.items.length} pointer${defaultEntry!.items.length > 1 ? "s" : ""} logged for this hour.` : "Write a few pointers. Tags are filled in for you."}</p>
-          <div className="nowcta">
-            <button className="btn ink big" onClick={() => openHour(view, defaultHour)}>{hasLogged(defaultEntry) ? "Edit this hour" : "Log this hour"} <kbd>L</kbd></button>
-            {!hasLogged(defaultEntry) && hasLogged(entries[entryKey(view, defaultHour - 1)]) && (
-              <button className="btn big" onClick={() => sameAsLast(view, defaultHour)}>Same as last hour</button>
-            )}
-          </div>
-        </div>
+      <div className="home">
+        <div className="col">
+          <section className="card nowcard now">
+            <span className="eyebrow">{isToday ? "Log an hour" : fmtDay(view)}</span>
+            <h2>{isToday ? `${greeting}. ` : ""}What did you do <em>{hl(defaultHour)} to {hl(defaultHour + 1)}</em>?</h2>
+            <p className="mute">{hasLogged(defaultEntry) ? `${defaultEntry!.items.length} pointer${defaultEntry!.items.length > 1 ? "s" : ""} logged for this hour.` : "Write a few pointers. Tags are filled in for you."}</p>
+            <div className="nowcta">
+              <button className="btn ink big" onClick={() => openHour(view, defaultHour)}>{hasLogged(defaultEntry) ? "Edit this hour" : "Log this hour"} <kbd>L</kbd></button>
+              {!hasLogged(defaultEntry) && hasLogged(entries[entryKey(view, defaultHour - 1)]) && (
+                <button className="btn big" onClick={() => sameAsLast(view, defaultHour)}>Same as last hour</button>
+              )}
+            </div>
+          </section>
 
-        <aside className="card sum">
-          <div className="ringrow">
-            <div className="ring">
-              <svg viewBox="0 0 112 112"><circle className="bg" cx="56" cy="56" r="49" /><circle className="fg" cx="56" cy="56" r="49" strokeDasharray={C} strokeDashoffset={offset} /></svg>
-              <div><b>{logged}</b><small>of {hours.length} hrs</small></div>
+          <section className="card tl">
+            <div className="tlhead">
+              <h2>{isToday ? "Your day so far" : fmtDay(view)}</h2>
+              <button className="btn" onClick={() => setAllDay((v) => !v)}>{allDay ? "Hide night hours" : "Show night hours"}</button>
             </div>
-            <p>
-              <strong>{logged === 0 ? "A clean slate" : left === 0 ? "Every hour logged" : `${logged} hours logged`}</strong>
-              {left === 0 ? "Nothing left to fill in." : isToday ? `${left} still open. Fill gaps from the timeline.` : `${left} hours have no entry.`}
-            </p>
-          </div>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 9 }}>Where the time went</div>
-            <div className="split">{perRoot.map(([id, v]) => <i key={id} title={id === "untagged" ? "Untagged" : idx.byId.get(id)?.name} style={{ ["--c" as string]: id === "untagged" ? UNTAGGED_COLOR : colorOf(idx, id), ["--g" as string]: v }} />)}</div>
-            <div className="legend">
-              {perRoot.length === 0 && <span style={{ color: "var(--faint)" }}>Log an hour and it shows up here.</span>}
-              {perRoot.map(([id, v]) => (
-                <span key={id} style={{ ["--c" as string]: id === "untagged" ? UNTAGGED_COLOR : colorOf(idx, id) }}><i />{id === "untagged" ? "Untagged" : idx.byId.get(id)?.name}<em>{Math.round(v * 10) / 10}h</em></span>
-              ))}
-            </div>
-          </div>
-          <div className="tiles">
-            {([["Pointers", pointers], ["Areas", perRoot.filter(([id]) => id !== "untagged").length], ["Open hours", Math.max(0, left)]] as const).map(([l, n]) => (
-              <div className="tile" key={l}><b>{n}</b><small>{l}</small></div>
-            ))}
-          </div>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 10 }}>Last 7 days</div>
-            <div className="week">
-              {week.map((d) => {
-                const n = Object.values(entries).filter((e) => e.day === d && hasLogged(e)).length;
-                return (
-                  <button key={d} className={`${d === view ? "cur" : ""} ${d === today ? "today" : ""}`} onClick={() => setView(d)} aria-label={`${fmtDay(d)}, ${n} hours logged`}>
-                    <i style={{ ["--h" as string]: `${Math.max(6, Math.round((n / 18) * 100))}%` }} />
-                    <small>{"SMTWTFS"[new Date(d + "T12:00:00").getDay()]}</small>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </aside>
-      </section>
-
-      <section className="card tl">
-        <div className="tlhead">
-          <h2>{isToday ? "Your day so far" : fmtDay(view)}</h2>
-          <button className="btn" onClick={() => setAllDay((v) => !v)}>{allDay ? "Hide night hours" : "Show night hours"}</button>
-        </div>
-        {!loaded ? (
-          <div className="tlload"><ClockLoader size={48} label="Loading your day" /></div>
-        ) : (
-          <div className="slots enter" key={view}>
-            {hours.map((h, i) => {
-              const e = entries[entryKey(view, h)];
-              const has = hasLogged(e);
-              const isNow = isToday && h === nowH;
-              const past = view < today || (isToday && h < nowH);
-              const firstTag = has ? e!.items.flatMap((x) => x.tags)[0] : undefined;
-              return (
-                <button
-                  key={h}
-                  className={`slot${has ? " done" : ""}${isNow ? " now" : ""}${past && !has ? " missed" : ""}${!past && !isNow ? " future" : ""}`}
-                  style={{ ["--i" as string]: i, ...(firstTag ? { ["--c1" as string]: colorOf(idx, firstTag) } : {}) }}
-                  onClick={() => openHour(view, h)}
-                >
-                  <span className="t">{hl(h)}</span>
-                  <span className="rail"><i /></span>
-                  <span className="body">
-                    {has ? (
-                      <span className="lines">
-                        {e!.items.filter((x) => x.text.trim()).map((x) => (
-                          <span className="line" key={x.id}>
-                            <span className="dots">{(x.tags.length ? [...new Set(x.tags.map((t) => idx.byId.get(t) && colorOf(idx, t)).filter(Boolean))] : [UNTAGGED_COLOR]).map((c) => <i key={c as string} style={{ background: c as string }} />)}</span>
-                            <span className="txt">{x.text}</span>
+            {!loaded ? (
+              <div className="tlload"><ClockLoader size={48} label="Loading your day" /></div>
+            ) : (
+              <div className="slots enter" key={view}>
+                {hours.map((h, i) => {
+                  const e = entries[entryKey(view, h)];
+                  const has = hasLogged(e);
+                  const isNow = isToday && h === nowH;
+                  const past = view < today || (isToday && h < nowH);
+                  const firstTag = has ? e!.items.flatMap((x) => x.tags)[0] : undefined;
+                  return (
+                    <button
+                      key={h}
+                      className={`slot${has ? " done" : ""}${isNow ? " now" : ""}${past && !has ? " missed" : ""}${!past && !isNow ? " future" : ""}`}
+                      style={{ ["--i" as string]: i, ...(firstTag ? { ["--c1" as string]: colorOf(idx, firstTag) } : {}) }}
+                      onClick={() => openHour(view, h)}
+                    >
+                      <span className="t">{hl(h)}</span>
+                      <span className="rail"><i /></span>
+                      <span className="body">
+                        {has ? (
+                          <span className="lines">
+                            {e!.items.filter((x) => x.text.trim()).map((x) => (
+                              <span className="line" key={x.id}>
+                                <span className="dots">{(x.tags.length ? [...new Set(x.tags.map((t) => idx.byId.get(t) && colorOf(idx, t)).filter(Boolean))] : [UNTAGGED_COLOR]).map((c) => <i key={c as string} style={{ background: c as string }} />)}</span>
+                                <span className="txt">{x.text}</span>
+                              </span>
+                            ))}
                           </span>
-                        ))}
+                        ) : (
+                          <span className="empty">{isNow ? "Happening now" : past ? "Tap to log" : "Plan ahead"}</span>
+                        )}
                       </span>
-                    ) : (
-                      <span className="empty">{isNow ? "Happening now" : past ? "Tap to log" : "Plan ahead"}</span>
-                    )}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
 
-      <div ref={settingsRef}>
-        <Settings open={showSettings} onToggle={setShowSettings} demo={demo} sb={sb} gcal={gcal} onConnect={connectGoogle} onDisconnect={disconnectGoogle} onSyncAll={setSyncAll} />
+        <div className="col">
+          <div className="actionsCol">
+            <ActionsCard
+              reminders={reminders}
+              today={today}
+              nowTime={`${String(new Date().getHours()).padStart(2, "0")}:${String(minute).padStart(2, "0")}`}
+              gcal={gcal}
+              logs={logsByAction}
+              blockIds={blockIds}
+              onAdd={async (r, toCal) => { await addReminder(r, toCal); }}
+              onToggle={toggleDone}
+              onDelete={removeReminder}
+              onUpdate={updateReminder}
+              onShowInPlan={showInPlan}
+              onOpenLog={(d, h) => { setView(d); openHour(d, h); }}
+            />
+          </div>
+
+          <aside className="card sum">
+            <div className="ringrow">
+              <div className="ring">
+                <svg viewBox="0 0 112 112"><circle className="bg" cx="56" cy="56" r="49" /><circle className="fg" cx="56" cy="56" r="49" strokeDasharray={C} strokeDashoffset={offset} /></svg>
+                <div><b>{logged}</b><small>of {hours.length} hrs</small></div>
+              </div>
+              <p>
+                <strong>{logged === 0 ? "A clean slate" : left === 0 ? "Every hour logged" : `${logged} hours logged`}</strong>
+                {left === 0 ? "Nothing left to fill in." : isToday ? `${left} still open. Fill gaps from the timeline.` : `${left} hours have no entry.`}
+              </p>
+            </div>
+            <div>
+              <div className="split">{perRoot.map(([id, v]) => <i key={id} title={id === "untagged" ? "Untagged" : idx.byId.get(id)?.name} style={{ ["--c" as string]: id === "untagged" ? UNTAGGED_COLOR : colorOf(idx, id), ["--g" as string]: v }} />)}</div>
+              <div className="legend">
+                {perRoot.length === 0 && <span style={{ color: "var(--faint)" }}>Log an hour and it shows up here.</span>}
+                {perRoot.map(([id, v]) => (
+                  <span key={id} style={{ ["--c" as string]: id === "untagged" ? UNTAGGED_COLOR : colorOf(idx, id) }}><i />{id === "untagged" ? "Untagged" : idx.byId.get(id)?.name}<em>{Math.round(v * 10) / 10}h</em></span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="eyebrow" style={{ marginBottom: 10 }}>Last 7 days</div>
+              <div className="week">
+                {week.map((d) => {
+                  const n = Object.values(entries).filter((e) => e.day === d && hasLogged(e)).length;
+                  return (
+                    <button key={d} className={`${d === view ? "cur" : ""} ${d === today ? "today" : ""}`} onClick={() => setView(d)} aria-label={`${fmtDay(d)}, ${n} hours logged`}>
+                      <i style={{ ["--h" as string]: `${Math.max(6, Math.round((n / 18) * 100))}%` }} />
+                      <small>{"SMTWTFS"[new Date(d + "T12:00:00").getDay()]}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </aside>
+        </div>
       </div>
-      <div className="foot">Press L to log the current hour. · <Link href="/privacy">Privacy</Link> · <Link href="/terms">Terms</Link></div>
+
+      <SettingsDrawer
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        demo={demo}
+        sb={sb}
+        name={displayName ?? ""}
+        gcal={gcal}
+        onConnect={connectGoogle}
+        onDisconnect={disconnectGoogle}
+        onSyncAll={setSyncAll}
+      />
 
       {dialog && (
         <LogDialog
@@ -585,24 +698,17 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
           onSame={() => sameAsLast(dialog.day, dialog.hour)}
           onNav={(d) => setDialog((cur) => (cur ? { ...cur, hour: Math.min(23, Math.max(0, cur.hour + d)) } : cur))}
           onClose={() => setDialog(null)}
+          allActions={reminders}
+          onToggleAction={toggleDone}
+          onCreateAction={createActionForLog}
           actionsApi={{
-            demo,
-            today,
-            gcal,
-            connectGoogle,
+            ...baseApi,
             generate: async (texts) => {
               if (demo) return { actions: heuristicActions(texts, today), source: "fallback" };
-              const n = new Date();
-              const now = `${ymd(n)}T${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
-              const r = await fetch("/api/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: texts, now, tz: tz(), day: dialog.day, hour: dialog.hour }) });
+              const r = await fetch("/api/actions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ items: texts, now: nowIso(), tz: tz(), day: dialog.day, hour: dialog.hour }) });
               return r.ok ? await r.json() : null;
             },
             addReminder: (sg, toCal) => addReminder({ title: sg.title, notes: sg.notes, due_date: sg.date, due_time: sg.time, source: "ai", source_day: dialog.day, source_hour: dialog.hour, source_key: sg.key }, toCal),
-            addEvent: async (sg) => {
-              const { ok, json } = await post("/api/gcal/sync", { action: "event", title: sg.title, notes: sg.notes, date: sg.date, time: sg.time, endTime: sg.end_time, tz: tz() });
-              if (!ok) calendarProblem(json.error);
-              return { ok, link: json.link, error: json.error };
-            },
           } satisfies ActionsApi}
         />
       )}

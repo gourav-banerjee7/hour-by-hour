@@ -5,6 +5,8 @@ import { hasLogged, newId, type Entry, type Item, type Tag, type TagIndex } from
 import ClockLoader from "./ClockLoader";
 import { TagChip, TagPicker } from "./TagUI";
 import ActionsPanel, { type ActionsApi } from "./ActionsPanel";
+import ActionPicker from "./ActionPicker";
+import type { Reminder } from "@/lib/reminders";
 
 type Props = {
   day: string;
@@ -25,6 +27,9 @@ type Props = {
   onNav: (delta: number) => void;
   onClose: () => void;
   actionsApi: ActionsApi;
+  allActions: Reminder[];
+  onToggleAction: (r: Reminder) => void;
+  onCreateAction: (title: string) => Promise<string | null>;
 };
 
 function Grow({ inputRef, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { value: string; inputRef?: React.RefObject<HTMLTextAreaElement | null> }) {
@@ -40,6 +45,8 @@ export default function LogDialog(p: Props) {
   const items = p.entry?.items ?? [];
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<string | null>(null);
+  const [aPicker, setAPicker] = useState<string | null>(null);
+  const actionById = new Map(p.allActions.map((a) => [a.id, a]));
   const draftRef = useRef<HTMLTextAreaElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -47,7 +54,7 @@ export default function LogDialog(p: Props) {
     document.body.classList.add("noscroll");
     return () => document.body.classList.remove("noscroll");
   }, []);
-  useEffect(() => { setDraft(""); setPicker(null); setTimeout(() => draftRef.current?.focus(), 60); }, [p.day, p.hour]);
+  useEffect(() => { setDraft(""); setPicker(null); setAPicker(null); setTimeout(() => draftRef.current?.focus(), 60); }, [p.day, p.hour]);
 
   const commitDraft = () => {
     const text = draft.trim();
@@ -65,6 +72,8 @@ export default function LogDialog(p: Props) {
   const patch = (id: string, fn: (i: Item) => Item, slow?: boolean) => p.onItems(items.map((i) => (i.id === id ? fn(i) : i)), slow);
 
   const pickTag = (id: string, tagId: string) => { patch(id, (i) => ({ ...i, tags: i.tags.includes(tagId) ? i.tags : [...i.tags, tagId], manual: true })); setPicker(null); };
+  const link = (id: string, actionId: string) => { patch(id, (i) => ({ ...i, actions: (i.actions ?? []).includes(actionId) ? i.actions : [...(i.actions ?? []), actionId] })); setAPicker(null); };
+  const createAction = async (id: string, title: string) => { const a = await p.onCreateAction(title); if (a) link(id, a); };
   const createTag = async (id: string, path: string[]) => { const t = await p.onCreateTag(path); if (t) pickTag(id, t); };
 
   return (
@@ -106,11 +115,29 @@ export default function LogDialog(p: Props) {
                 {!p.pending.has(it.id) && (
                   <button className="tadd" onClick={() => setPicker(picker === it.id ? null : it.id)} aria-label="Add a tag">+ tag</button>
                 )}
+                {(it.actions ?? []).map((aid) => {
+                  const a = actionById.get(aid);
+                  if (!a) return null;
+                  return (
+                    <span key={aid} className={`achip${a.done ? " done" : ""}`} title="Action this was for">
+                      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 14V2.5M4 3h8l-1.6 2.7L12 8.5H4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      <span className="atxt">{a.title}</span>
+                      <button className="adone" onClick={() => p.onToggleAction(a)}>{a.done ? "Undo" : "Mark done"}</button>
+                      <button aria-label="Unlink action" onClick={() => patch(it.id, (i) => ({ ...i, actions: (i.actions ?? []).filter((x) => x !== aid) }))}>×</button>
+                    </span>
+                  );
+                })}
+                {!p.pending.has(it.id) && (
+                  <button className="tadd" onClick={() => setAPicker(aPicker === it.id ? null : it.id)} aria-label="Link an action">+ action</button>
+                )}
                 {!p.pending.has(it.id) && it.manual && (
                   <button className="tlink" onClick={() => { patch(it.id, (i) => ({ ...i, manual: false, tags: [] })); p.onTag([it.id]); }}>Re-tag with AI</button>
                 )}
                 <button className="tdel" onClick={() => p.onItems(items.filter((i) => i.id !== it.id))} aria-label="Delete pointer">Delete</button>
               </div>
+              {aPicker === it.id && (
+                <ActionPicker actions={p.allActions} exclude={it.actions ?? []} onPick={(a) => link(it.id, a)} onCreate={(t) => createAction(it.id, t)} onClose={() => setAPicker(null)} />
+              )}
               {picker === it.id && (
                 <TagPicker idx={p.idx} tags={p.tags} exclude={it.tags} onPick={(t) => pickTag(it.id, t)} onCreate={(path) => createTag(it.id, path)} onClose={() => setPicker(null)} />
               )}

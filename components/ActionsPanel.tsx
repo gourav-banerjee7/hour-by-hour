@@ -19,7 +19,7 @@ const Bell = () => <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="
 const Cal = () => <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><rect x="3" y="4" width="14" height="13" rx="3" fill="none" stroke="currentColor" strokeWidth="1.6" /><path d="M3 8h14M7 2.5v3M13 2.5v3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>;
 const Spark = () => <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 2l1.7 5.1L17 9l-5.3 1.9L10 16l-1.7-5.1L3 9l5.3-1.9z" fill="currentColor" /></svg>;
 
-export default function ActionsPanel({ api, texts }: { api: ActionsApi; texts: string[] }) {
+export default function ActionsPanel({ api, texts, label = "Generate actions", onClose }: { api: ActionsApi; texts: string[]; label?: string; onClose?: () => void }) {
   const [list, setList] = useState<Suggestion[] | null>(null);
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [editing, setEditing] = useState<string | null>(null);
@@ -41,7 +41,7 @@ export default function ActionsPanel({ api, texts }: { api: ActionsApi; texts: s
 
   const addReminder = async (s: Suggestion) => {
     set(s.key, { state: "busy" });
-    const calendar = api.gcal.connected && (toCal[s.key] ?? api.gcal.syncAll);
+    const calendar = api.gcal.connected && !!s.date && (toCal[s.key] ?? api.gcal.syncAll);
     const r = await api.addReminder(s, calendar);
     set(s.key, r === "added" ? { state: "added", note: calendar ? "Reminder added, and sent to Google Calendar" : "Reminder added" } : r === "exists" ? { state: "exists", note: "Already in your reminders" } : { state: "error", note: "Could not add. Try again." });
   };
@@ -56,16 +56,17 @@ export default function ActionsPanel({ api, texts }: { api: ActionsApi; texts: s
     <div className="acts">
       <div className="actshead">
         <button className="btn gen" onClick={generate} disabled={loading || noText}>
-          {loading ? <ClockLoader size={16} inline label="Reading your log" /> : <><Spark /> Generate actions</>}
+          {loading ? <ClockLoader size={16} inline label="Reading your log" /> : <><Spark /> {label}</>}
         </button>
-        {list && !loading && <span className="mute small">{list.length ? `${list.length} suggested` : "Nothing to follow up on"}</span>}
+        {list && !loading && <span className="mute small">{list.length ? `${list.length} suggested` : "Nothing to turn into an action"}</span>}
+        {onClose && <button className="tlink" style={{ marginLeft: "auto" }} onClick={onClose}>Close</button>}
       </div>
       {err && <p className="aerr">{err}</p>}
       {source === "fallback" && list && list.length > 0 && <p className="mute small">Suggested with basic rules. Add the AI key for smarter suggestions.</p>}
 
       {list?.map((s) => {
         const st = status[s.key]?.state ?? "idle";
-        const isEvent = s.type === "calendar_event";
+        const isEvent = s.type === "calendar_event" && !!s.date && !!s.time;
         const ed = editing === s.key;
         return (
           <div key={s.key} className={`act${st === "added" || st === "exists" ? " ok" : ""}`}>
@@ -74,8 +75,8 @@ export default function ActionsPanel({ api, texts }: { api: ActionsApi; texts: s
               {ed ? (
                 <div className="aedit">
                   <input value={s.title} onChange={(e) => patch(s.key, { title: e.target.value })} aria-label="Title" maxLength={200} />
-                  <input type="date" value={s.date} onChange={(e) => patch(s.key, { date: e.target.value || s.date })} aria-label="Date" />
-                  <input type="time" value={s.time ?? ""} onChange={(e) => patch(s.key, { time: e.target.value || null })} aria-label="Time" />
+                  <input type="date" value={s.date ?? ""} onChange={(e) => patch(s.key, { date: e.target.value || null, time: e.target.value ? s.time : null })} aria-label="Date (optional)" />
+                  <input type="time" value={s.time ?? ""} disabled={!s.date} onChange={(e) => patch(s.key, { time: e.target.value || null })} aria-label="Time" />
                   <button className="btn ink" onClick={() => setEditing(null)}>Done</button>
                 </div>
               ) : (
@@ -100,7 +101,7 @@ export default function ActionsPanel({ api, texts }: { api: ActionsApi; texts: s
                   ) : (
                     <>
                       <button className="btn ink" onClick={() => addReminder(s)} disabled={st === "busy"}><Bell /> Add reminder</button>
-                      {api.gcal.connected && (
+                      {api.gcal.connected && s.date && (
                         <label className="rchk"><input type="checkbox" checked={toCal[s.key] ?? api.gcal.syncAll} onChange={(e) => setToCal((p) => ({ ...p, [s.key]: e.target.checked }))} /> Also in Google Calendar</label>
                       )}
                     </>

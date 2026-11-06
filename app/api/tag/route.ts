@@ -18,7 +18,8 @@ Rules:
 - Roots are broad life areas (Work, Career, Health, Entertainment, Learning, Life, Social). Deeper levels get more specific, but stay reusable: "Running", never "5k run at 6am".
 - Give each note 1 to 3 paths. Use more than one only when the note truly spans areas.
 - Names are short, Sentence case, 1 to 3 words. No emoji.
-- The note text may be long. Tag its main subjects, not every detail.`;
+- The note text may be long. Tag its main subjects, not every detail.
+- You are also given the person's open actions. For each note, list in action_ids the ids of any open action the note is clearly about working on (progress on it, or finishing it). Be conservative: leave it empty unless the match is obvious.`;
 
 function treeText(tags: Tag[]) {
   if (!tags.length) return "(empty: no tags exist yet)";
@@ -30,10 +31,11 @@ function treeText(tags: Tag[]) {
   return lines.join("\n");
 }
 
-async function aiPaths(items: In[], tags: Tag[]): Promise<Map<string, Path[]>> {
-  const parsed = await geminiJson<{ results?: { id: string; paths: Path[] }[] }>({
+type Open = { id: string; title: string };
+async function aiPaths(items: In[], tags: Tag[], open: Open[]): Promise<{ paths: Map<string, Path[]>; actions: Map<string, string[]> }> {
+  const parsed = await geminiJson<{ results?: { id: string; paths: Path[]; action_ids?: string[] }[] }>({
     system: SYSTEM,
-    prompt: `Current tag tree:\n${treeText(tags)}\n\nNotes to tag (JSON):\n${JSON.stringify(items)}`,
+    prompt: `Current tag tree:\n${treeText(tags)}\n\nOpen actions (JSON):\n${JSON.stringify(open)}\n\nNotes to tag (JSON):\n${JSON.stringify(items)}`,
     schema: {
       type: "OBJECT",
       properties: {
@@ -41,7 +43,7 @@ async function aiPaths(items: In[], tags: Tag[]): Promise<Map<string, Path[]>> {
           type: "ARRAY",
           items: {
             type: "OBJECT",
-            properties: { id: { type: "STRING" }, paths: { type: "ARRAY", items: { type: "ARRAY", items: { type: "STRING" } } } },
+            properties: { id: { type: "STRING" }, paths: { type: "ARRAY", items: { type: "ARRAY", items: { type: "STRING" } } }, action_ids: { type: "ARRAY", items: { type: "STRING" } } },
             required: ["id", "paths"],
           },
         },
@@ -49,11 +51,14 @@ async function aiPaths(items: In[], tags: Tag[]): Promise<Map<string, Path[]>> {
       required: ["results"],
     },
   });
-  const out = new Map<string, Path[]>();
-  (parsed.results ?? []).forEach((r) =>
-    out.set(r.id, (r.paths ?? []).filter((p) => Array.isArray(p) && p.length).map((p) => p.slice(0, 4)).slice(0, 3)),
-  );
-  return out;
+  const paths = new Map<string, Path[]>();
+  const actions = new Map<string, string[]>();
+  const valid = new Set(open.map((o) => o.id));
+  (parsed.results ?? []).forEach((r) => {
+    paths.set(r.id, (r.paths ?? []).filter((p) => Array.isArray(p) && p.length).map((p) => p.slice(0, 4)).slice(0, 3));
+    actions.set(r.id, (r.action_ids ?? []).filter((a) => valid.has(a)).slice(0, 3));
+  });
+  return { paths, actions };
 }
 
 export async function POST(req: Request) {
@@ -70,15 +75,19 @@ export async function POST(req: Request) {
   const { data: tagRows } = await sb.from("tags").select("id,parent_id,name,color").eq("user_id", userId);
   let tags = (tagRows ?? []) as Tag[];
 
+  const { data: openRows } = await sb.from("reminders").select("id,title").eq("user_id", userId).eq("done", false).limit(40);
+  const open = (openRows ?? []) as Open[];
+
   let paths = new Map<string, Path[]>();
+  let linked = new Map<string, string[]>();
   let source: "ai" | "fallback" = "fallback";
   if (geminiConfigured()) {
-    try { paths = await aiPaths(items, tags); source = "ai"; } catch (e) { console.error("tagging failed", e); }
+    try { const r = await aiPaths(items, tags, open); paths = r.paths; linked = r.actions; source = "ai"; } catch (e) { console.error("tagging failed", e); }
   }
   if (source === "fallback") items.forEach((i) => paths.set(i.id, heuristicPaths(i.text)));
 
   const created: Tag[] = [];
-  const results: { id: string; tags: string[] }[] = [];
+  const results: { id: string; tags: string[]; actions: string[] }[] = [];
   for (const it of items) {
     const ids: string[] = [];
     for (const p of paths.get(it.id) ?? []) {
@@ -86,7 +95,7 @@ export async function POST(req: Request) {
       if (r.created.length) { created.push(...r.created); tags = [...tags, ...r.created]; }
       if (r.id && !ids.includes(r.id)) ids.push(r.id);
     }
-    results.push({ id: it.id, tags: ids });
+    results.push({ id: it.id, tags: ids, actions: linked.get(it.id) ?? [] });
   }
   return NextResponse.json({ results, created, source });
 }
