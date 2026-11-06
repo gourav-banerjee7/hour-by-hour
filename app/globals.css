@@ -659,7 +659,66 @@ textarea.ntext:focus{outline:0}
   .brow{grid-template-columns:92px minmax(0,1fr) 36px}
   .cgrid{grid-template-columns:minmax(0,.85fr) minmax(0,.5fr) minmax(0,1.5fr)}
 }
+
+/* 0. timeline */
+.s0{--T:10s}
+.tl{display:flex;flex-direction:column;gap:8px;animation:s0wrap var(--T) ease-in-out infinite both}
+.trow{display:flex;align-items:center;gap:10px;background:#fff;border-radius:14px;box-shadow:var(--shadow);padding:9px 12px;font-size:14px;font-weight:600}
+.trow .tt{font:500 11.5px var(--mono);color:var(--mute);width:42px;flex:none}
+.trow .tx{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trow .tag{font-size:12px;padding:3px 9px}
+.trow.now{background:var(--sun-soft);box-shadow:0 0 0 2px var(--sun),var(--shadow);animation:s0now var(--T) ease infinite both}
+.trow .plus{color:var(--mute);font-weight:500}
+.nowdot{font:700 10.5px var(--mono);letter-spacing:.06em;text-transform:uppercase;background:var(--ink);color:#fff;border-radius:999px;padding:3px 8px;animation:beat 1.6s infinite}
+.r1{animation:s0r1 var(--T) cubic-bezier(.3,1.3,.5,1) infinite both}.r2{animation:s0r2 var(--T) cubic-bezier(.3,1.3,.5,1) infinite both}.r3{animation:s0r3 var(--T) cubic-bezier(.3,1.3,.5,1) infinite both}.r4{animation:s0r4 var(--T) cubic-bezier(.3,1.3,.5,1) infinite both}.r5{animation:s0r5 var(--T) cubic-bezier(.3,1.3,.5,1) infinite both}
+.dbar{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px;margin-top:4px}
+.dbar .g{height:10px;border-radius:999px;background:var(--c,#EDEEF8)}
+.dbar .gnow{background:var(--sun);animation:blink 1.2s infinite}
+.g1{animation:s0g1 var(--T) infinite both}.g2{animation:s0g2 var(--T) infinite both}.g3{animation:s0g3 var(--T) infinite both}.g4{animation:s0g4 var(--T) infinite both}.g5{animation:s0g5 var(--T) infinite both}
+@keyframes s0wrap{0%{opacity:0}4%,92%{opacity:1}97%,100%{opacity:0}}
+@keyframes s0now{0%,66%{opacity:0;transform:translateY(8px)}74%,100%{opacity:1;transform:none}}
+@keyframes s0r1{0%,8%{opacity:0;transform:translateX(-12px)}14%,100%{opacity:1;transform:none}}
+@keyframes s0g1{0%,8%{background:#EDEEF8}14%,100%{background:var(--c)}}
+@keyframes s0r2{0%,20%{opacity:0;transform:translateX(-12px)}26%,100%{opacity:1;transform:none}}
+@keyframes s0g2{0%,20%{background:#EDEEF8}26%,100%{background:var(--c)}}
+@keyframes s0r3{0%,32%{opacity:0;transform:translateX(-12px)}38%,100%{opacity:1;transform:none}}
+@keyframes s0g3{0%,32%{background:#EDEEF8}38%,100%{background:var(--c)}}
+@keyframes s0r4{0%,44%{opacity:0;transform:translateX(-12px)}50%,100%{opacity:1;transform:none}}
+@keyframes s0g4{0%,44%{background:#EDEEF8}50%,100%{background:var(--c)}}
+@keyframes s0r5{0%,56%{opacity:0;transform:translateX(-12px)}62%,100%{opacity:1;transform:none}}
+@keyframes s0g5{0%,56%{background:#EDEEF8}62%,100%{background:var(--c)}}
+
+/* 5. phone */
+.s5{--T:9s;place-items:center}
+.phone{width:218px;border-radius:34px;background:var(--ink);padding:8px;box-shadow:0 24px 50px -18px rgba(22,24,47,.55);animation:s5wrap var(--T) ease-in-out infinite both}
+.pscr{background:#FAFAFE;border-radius:27px;height:330px;overflow:hidden;position:relative}
+.pin{position:absolute;inset:0;display:flex;flex-direction:column;padding:16px 14px 12px;gap:10px}
+.ptop{display:flex;justify-content:space-between;align-items:baseline}.ptop b{font:800 17px var(--display);letter-spacing:-.02em}.ptop .eyebrow{font-size:9.5px}
+.pnotes{flex:1;display:flex;flex-direction:column;gap:7px;min-height:0}
+.pn{margin:0;display:flex;align-items:center;gap:8px;font:400 16px/1.2 var(--font-hand),cursive;background:#FFFBE0;border-radius:10px;padding:8px 10px;overflow:hidden}
+.pn u{width:8px;height:8px;border-radius:50%;background:var(--ink);flex:none}
+.pn:nth-child(3){background:#E8F7F1}.pn:nth-child(4){background:#EEE9FF}
+.newn{animation:s5new var(--T) cubic-bezier(.3,1.3,.5,1) infinite both}
+.pcomp{position:relative;display:flex;align-items:center;background:#fff;border-radius:999px;box-shadow:var(--shadow);padding:6px 6px 6px 12px;min-height:38px;font-size:13px}
+.pph{color:var(--faint);animation:s5ph var(--T) infinite both}
+.ptype{position:absolute;left:12px;opacity:0;white-space:nowrap;font-weight:600;animation:s5type var(--T) steps(12,end) infinite both}
+.psend{margin-left:auto;width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:14px;animation:s5send var(--T) ease infinite both}
+.ptoast{position:absolute;left:50%;bottom:64px;transform:translate(-50%,0);background:var(--ink);color:#fff;font-weight:700;font-size:12px;border-radius:999px;padding:7px 12px;white-space:nowrap;animation:s5toast var(--T) cubic-bezier(.2,1.3,.4,1) infinite both}
+@keyframes s5wrap{0%{opacity:0;transform:translateY(10px)}5%,93%{opacity:1;transform:none}98%,100%{opacity:0;transform:translateY(-6px)}}
+@keyframes s5ph{0%,8%{opacity:1}9%,40%{opacity:0}42%,100%{opacity:1}}
+@keyframes s5type{0%,10%{opacity:1;clip-path:inset(0 100% 0 0)}32%,38%{opacity:1;clip-path:inset(0 0 0 0)}39%,100%{opacity:0;clip-path:inset(0 0 0 0)}}
+@keyframes s5send{0%,34%{transform:none}37%{transform:scale(.82);background:var(--sun);color:var(--ink)}41%,100%{transform:none}}
+@keyframes s5new{0%,40%{max-height:0;padding-block:0;opacity:0;transform:translateY(-8px)}48%,100%{max-height:46px;padding-block:8px;opacity:1;transform:none}}
+@keyframes s5toast{0%,52%{opacity:0;transform:translate(-50%,24px)}58%,72%{opacity:1;transform:translate(-50%,0)}78%,100%{opacity:0;transform:translate(-50%,24px)}}
+
+/* closing block and privacy lines */
+.priv{margin:0;max-width:520px;font-size:13px;color:var(--mute);text-wrap:balance}
+.lhero .priv{margin-top:-2px}
+.lclose{display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;padding:36px 0 6px}
+.lclose h2{font:800 clamp(30px,5vw,46px)/1.05 var(--display);letter-spacing:-.03em;margin:0}
+.lclose>p:not(.priv){margin:0;color:var(--mute);font-size:17px}
+@media (max-width:760px){.trow .tx{font-size:13px}}
 @media (prefers-reduced-motion:reduce){
   .stage *{animation:none!important}
-  .stage .caret,.stage .mthink,.stage .mbtn,.stage .conn i,.stage .rip,.stage .cur,.s3 .l2,.s3 .l3,.s3 .cr.c2,.s3 .cr.c3{display:none}
+  .stage .caret,.stage .mthink,.stage .ptoast,.stage .ptype,.stage .gnow,.stage .mbtn,.stage .conn i,.stage .rip,.stage .cur,.s3 .l2,.s3 .l3,.s3 .cr.c2,.s3 .cr.c3{display:none}
 }

@@ -36,6 +36,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
           <SignInButton />
           <Link className="btn" href="/demo">Try the demo</Link>
         </div>
+        <p className="priv">Private to your account. Export everything as CSV any time.</p>
         {auth === "failed" && <p className="err">Sign-in did not finish. Please try again.</p>}
       </div>
       <div className="lchips" aria-hidden="true">
@@ -44,6 +45,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
         ))}
       </div>
       <Showcase />
+      <section className="lclose">
+        <h2>Start with the next hour.</h2>
+        <p>It takes five seconds to log it.</p>
+        <div className="lcta">
+          <SignInButton />
+          <Link className="btn" href="/demo">Try the demo</Link>
+        </div>
+        <p className="priv">Your entries are visible only to you. We never sell or share them. The text is sent to Google&rsquo;s Gemini only to create tags and suggestions, and you can ask us to delete everything.</p>
+      </section>
       <nav className="legalfoot" aria-label="Legal">
         <Link href="/privacy">Privacy</Link>
         <Link href="/terms">Terms</Link>
