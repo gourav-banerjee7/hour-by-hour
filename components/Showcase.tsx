@@ -20,7 +20,7 @@ export default function Showcase() {
   }, []);
 
   return (
-    <section className="show" ref={root} aria-labelledby="show-h">
+    <section className="showcase" ref={root} aria-labelledby="show-h">
       <div className="showhead">
         <span className="eyebrow">See it in motion</span>
         <h2 id="show-h">Log it. Plan it. Zoom in on it.</h2>
@@ -34,14 +34,14 @@ export default function Showcase() {
           <p>Every hour gets a line. Log as you go or catch up later. The sunny row is now, and the day fills in as you write.</p>
         </div>
         <div className="stage s0" aria-hidden="true">
-          <div className="tl">
+          <div className="s0tl">
             {([["9 AM", "Standup and planning", "Work", "work"], ["10 AM", "Reviewed 3 PRs", "Work", "work"], ["11 AM", "Morning run", "Move", "move"], ["12 PM", "Lunch with Sam", "Life", "life"], ["1 PM", "Applied to 2 jobs", "Career", "career"]] as const).map(([t, x, g, c], i) => (
-              <div className={`trow r${i + 1}`} key={t}>
+              <div className={`s0trow r${i + 1}`} key={t}>
                 <span className="tt">{t}</span><span className="tx">{x}</span>
                 <span className="tag" style={{ ["--c" as string]: `var(--${c})` }}>{g}</span>
               </div>
             ))}
-            <div className="trow now"><span className="tt">2 PM</span><span className="tx plus">What did you do?</span><span className="nowdot">Now</span></div>
+            <div className="s0trow isnow"><span className="tt">2 PM</span><span className="tx plus">What did you do?</span><span className="nowdot">Now</span></div>
             <div className="dbar">
               {(["work", "work", "move", "life", "career"] as const).map((c, i) => <i key={i} className={`g g${i + 1}`} style={{ ["--c" as string]: `var(--${c})` }} />)}
               <i className="g gnow" />
@@ -84,19 +84,19 @@ export default function Showcase() {
         </div>
         <div className="stage s2" aria-hidden="true">
           <div className="s2in">
-            <div className="pnl board">
+            <div className="pnl s2board">
               <span className="plbl">Planner board</span>
               <p className="mnote">Book flights for Goa. <span className="hl">Renew passport</span> before the trip.</p>
               <span className="mbtn">Make action</span>
             </div>
             <div className="conn c1"><i /></div>
-            <div className="pnl acts">
+            <div className="pnl s2acts">
               <span className="plbl">Actions</span>
               <div className="arow">
                 <svg className="ck" viewBox="0 0 20 20" width="22" height="22"><circle cx="10" cy="10" r="8.5" /><path d="M6 10.5l2.7 2.7L14 7.5" /></svg>
                 <span className="atit">Renew passport</span>
                 <span className="achp">In plan</span>
-                <span className="ameta">Fri · All day</span>
+                <span className="s2ameta">Fri · All day</span>
               </div>
             </div>
             <div className="conn c2"><i /></div>
@@ -122,7 +122,7 @@ export default function Showcase() {
         </div>
         <div className="stage s3" aria-hidden="true">
           <div className="s3in">
-            <div className="crumbs">
+            <div className="s3crumbs">
               <span className="cr c1">This week</span>
               <span className="cr c2">This week › Work</span>
               <span className="cr c3">This week › Work › Code review</span>
@@ -144,7 +144,7 @@ export default function Showcase() {
                 ))}
               </div>
               <span className="rip" />
-              <span className="cur"><svg viewBox="0 0 20 20" width="22" height="22"><path d="M4 2l11 7-5 1.5L7.5 16z" fill="#16182F" stroke="#fff" strokeWidth="1.5" strokeLinejoin="round" /></svg></span>
+              <span className="s3cursor"><svg viewBox="0 0 20 20" width="22" height="22"><path d="M4 2l11 7-5 1.5L7.5 16z" fill="#16182F" stroke="#fff" strokeWidth="1.5" strokeLinejoin="round" /></svg></span>
             </div>
           </div>
         </div>
@@ -158,7 +158,7 @@ export default function Showcase() {
           <p>On a small screen the board becomes a notebook. Jot a line, turn it into an action, log the hour. Same account, always in sync with your laptop.</p>
         </div>
         <div className="stage s5" aria-hidden="true">
-          <div className="phone">
+          <div className="s5phone">
             <div className="pscr">
               <div className="pin">
                 <div className="ptop"><b>Planner</b><span className="eyebrow">Notebook</span></div>
