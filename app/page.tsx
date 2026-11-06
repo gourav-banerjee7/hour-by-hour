@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabaseServer } from "@/lib/supabase/server";
 import SignInButton from "@/components/SignInButton";
 import HourApp from "@/components/HourApp";
+import Showcase from "@/components/Showcase";
 import type { Profile } from "@/components/HourApp";
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ auth?: string }> }) {
@@ -30,7 +31,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
         </div>
         <span className="eyebrow">A tiny journal for your hours</span>
         <h1>Know where <em>every hour</em> went.</h1>
-        <p>Tap what you did. A run, 3 PRs, two job applications, a long YouTube spiral. It takes five seconds, and a reminder nudges you each hour, even when the app is closed.</p>
+        <p>Tap what you did. A run, 3 PRs, two job applications, a long YouTube spiral. It takes five seconds, and the AI files it into tags for you. Plan on a whiteboard, turn it into actions, and see it on your calendar.</p>
         <div className="lcta">
           <SignInButton />
           <Link className="btn" href="/demo">Try the demo</Link>
@@ -42,6 +43,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ a
           <span key={t} className="tag" style={{ ["--c" as string]: `var(--${c})`, animationDelay: `${i * 0.35}s` }}>{t}</span>
         ))}
       </div>
+      <Showcase />
       <nav className="legalfoot" aria-label="Legal">
         <Link href="/privacy">Privacy</Link>
         <Link href="/terms">Terms</Link>
