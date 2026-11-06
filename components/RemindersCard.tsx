@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { addDays } from "@/lib/time";
 import { fmtDue, groupOpen, sortReminders, type Reminder } from "@/lib/reminders";
 
@@ -24,7 +24,8 @@ export default function RemindersCard({ reminders, today, nowTime, gcal, onAdd, 
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("");
   const [toCal, setToCal] = useState(gcal.syncAll);
-  const [focus, setFocus] = useState(false);
+  const [open, setOpen] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const [busy, setBusy] = useState(false);
   const [all, setAll] = useState(false);
   const [showDone, setShowDone] = useState(false);
@@ -34,7 +35,16 @@ export default function RemindersCard({ reminders, today, nowTime, gcal, onAdd, 
   const groups = groupOpen(reminders, today);
   const openCount = groups.reduce((n, g) => n + g.items.length, 0);
   const done = sortReminders(reminders.filter((r) => r.done)).reverse().slice(0, 8);
-  const expanded = focus || !!title;
+  const expanded = open || !!title;
+
+  // The options stay open while you interact with them. They close only when you
+  // click outside the form (and nothing is typed yet) or press Escape.
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => { if (!formRef.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
   let shown = 0;
 
   const submit = async () => {
@@ -42,7 +52,7 @@ export default function RemindersCard({ reminders, today, nowTime, gcal, onAdd, 
     if (!t || busy) return;
     setBusy(true);
     await onAdd({ title: t, due_date: date || today, due_time: time || null }, gcal.connected && toCal);
-    setTitle(""); setTime(""); setDate(today); setToCal(gcal.syncAll); setBusy(false);
+    setTitle(""); setTime(""); setDate(today); setToCal(gcal.syncAll); setBusy(false); setOpen(false);
   };
 
   const row = (r: Reminder, overdue = false) => {
@@ -84,9 +94,9 @@ export default function RemindersCard({ reminders, today, nowTime, gcal, onAdd, 
         {openCount > 0 && <span className="rcount">{openCount}</span>}
       </div>
 
-      <form className={`radd${expanded ? " open" : ""}`} onSubmit={(e) => { e.preventDefault(); submit(); }}>
+      <form ref={formRef} className={`radd${expanded ? " open" : ""}`} onSubmit={(e) => { e.preventDefault(); submit(); }}>
         <input
-          value={title} onChange={(e) => setTitle(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setTimeout(() => setFocus(false), 150)}
+          value={title} onChange={(e) => setTitle(e.target.value)} onFocus={() => setOpen(true)} onKeyDown={(e) => { if (e.key === "Escape") { setTitle(""); setOpen(false); (e.target as HTMLInputElement).blur(); } }}
           placeholder="Remind me to…" maxLength={200} aria-label="New reminder"
         />
         {expanded && (
