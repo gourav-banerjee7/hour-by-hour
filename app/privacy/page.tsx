@@ -13,6 +13,7 @@ export default function Privacy() {
         <li><b>What you write.</b> Your hourly pointers, the tags attached to them, your reminders, and your timezone.</li>
         <li><b>Google Calendar access (only if you connect it).</b> We ask for permission to create and edit events on your calendar. We do not read, list or delete events you did not create through the app. We store an encrypted token so the app can add events for you later.</li>
         <li><b>A session cookie</b> that keeps you signed in. We do not use advertising or tracking cookies.</li>
+        <li><b>Anonymous usage statistics.</b> We use Vercel Web Analytics to count page views and see which pages and countries visitors come from. It does not use cookies and does not follow you across sites. It never includes the text you write.</li>
       </ul>
 
       <h2>How we use it</h2>
@@ -26,7 +27,7 @@ export default function Privacy() {
       <h2>Who processes it</h2>
       <ul>
         <li><b>Supabase</b> hosts the database. Your data is stored in the Asia-Pacific (Tokyo) region and is only readable by your own account.</li>
-        <li><b>Vercel</b> hosts the website.</li>
+        <li><b>Vercel</b> hosts the website and provides the anonymous page-view statistics.</li>
         <li><b>Google</b> provides sign-in, Google Calendar, and the Gemini API. When you add a pointer or press “Generate actions”, the text of those pointers (and your current date and timezone) is sent to the Gemini API to produce tags and suggestions. How Google handles that content is governed by the Gemini API terms that apply to the API key used by this app.</li>
       </ul>
 
