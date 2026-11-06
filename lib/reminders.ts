@@ -46,7 +46,7 @@ export function fmtDate(d: string | null, today: string) {
   if (d === addDays(today, -1)) return "Yesterday";
   return new Date(d + "T12:00:00").toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
-export const fmtDue = (d: string | null, t: string | null, today: string) => (d ? `${fmtDate(d, today)}${t ? " · " + fmtTime(t) : ""}` : "No date");
+export const fmtDue = (d: string | null, t: string | null, today: string) => (d ? `${fmtDate(d, today)}${t ? " · " + fmtTime(t) : " · All day"}` : "No date");
 
 export function sortReminders(list: Reminder[]) {
   const key = (r: Reminder) => (r.due_date ? "0" + r.due_date + (r.due_time ?? "99") : "1");

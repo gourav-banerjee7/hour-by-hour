@@ -31,6 +31,7 @@ export default function ActionsCard({ reminders, today, nowTime, gcal, logs, blo
   const [title, setTitle] = useState("");
   const [date, setDate] = useState<string>("");
   const [time, setTime] = useState("");
+  const [allDay, setAllDay] = useState(true);
   const [toCal, setToCal] = useState(gcal.syncAll);
   const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -60,8 +61,8 @@ export default function ActionsCard({ reminders, today, nowTime, gcal, logs, blo
     const t = title.trim();
     if (!t || busy) return;
     setBusy(true);
-    await onAdd({ title: t, due_date: date || null, due_time: date ? time || null : null }, gcal.connected && !!date && toCal);
-    setTitle(""); setTime(""); setDate(""); setToCal(gcal.syncAll); setBusy(false); setOpen(false);
+    await onAdd({ title: t, due_date: date || null, due_time: date && !allDay ? time || null : null }, gcal.connected && !!date && toCal);
+    setTitle(""); setTime(""); setDate(""); setAllDay(true); setToCal(gcal.syncAll); setBusy(false); setOpen(false);
   };
 
   const row = (r: Reminder, overdue = false) => {
@@ -70,7 +71,10 @@ export default function ActionsCard({ reminders, today, nowTime, gcal, logs, blo
         <form key={r.id} className="redit" onSubmit={async (e) => { e.preventDefault(); if (draft.title.trim()) { await onUpdate(r, { ...draft, title: draft.title.trim() }); setEditing(null); } }}>
           <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} maxLength={200} autoFocus aria-label="Action title" />
           <input type="date" value={draft.due_date ?? ""} onChange={(e) => setDraft({ ...draft, due_date: e.target.value || null, due_time: e.target.value ? draft.due_time : null })} aria-label="Date (optional)" />
-          <input type="time" value={draft.due_time ?? ""} disabled={!draft.due_date} onChange={(e) => setDraft({ ...draft, due_time: e.target.value || null })} aria-label="Time" />
+          {draft.due_date && (
+            <label className="rchk"><input type="checkbox" checked={!draft.due_time} onChange={(e) => setDraft({ ...draft, due_time: e.target.checked ? null : "09:00" })} /> All day</label>
+          )}
+          {draft.due_date && !!draft.due_time && <input type="time" value={draft.due_time} onChange={(e) => setDraft({ ...draft, due_time: e.target.value || null })} aria-label="Time" />}
           <button className="btn ink" type="submit">Save</button>
           <button className="btn" type="button" onClick={() => setEditing(null)}>Cancel</button>
         </form>
@@ -132,7 +136,10 @@ export default function ActionsCard({ reminders, today, nowTime, gcal, logs, blo
               <button type="button" className={date === addDays(today, 1) ? "on" : ""} onClick={() => setDate(addDays(today, 1))}>Tomorrow</button>
             </div>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Date (optional)" />
-            <input type="time" value={time} disabled={!date} onChange={(e) => setTime(e.target.value)} aria-label="Time (optional)" />
+            {date && (
+              <label className="rchk"><input type="checkbox" checked={allDay} onChange={(e) => { setAllDay(e.target.checked); if (e.target.checked) setTime(""); else if (!time) setTime("09:00"); }} /> All day</label>
+            )}
+            {date && !allDay && <input type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="Time" />}
             {gcal.connected && date && (
               <label className="rchk"><input type="checkbox" checked={toCal} onChange={(e) => setToCal(e.target.checked)} /> <Cal /> Google Calendar</label>
             )}
