@@ -2,6 +2,8 @@
 
 **A tiny journal for your hours.** Live at **[hour-by-hour.xyz](https://hour-by-hour.xyz)**, or [try the demo](https://hour-by-hour.xyz/demo) without signing in.
 
+<p align="center"><img src="docs/media/01-timeline.gif" width="640" alt="A day's timeline filling in hour by hour, each line tagged Work, Move, Life or Career, with the current hour highlighted"></p>
+
 ## Why this exists
 
 Most time trackers ask you to start a timer before you do something, or to pick a project and a category after. Both are friction, so people stop using them within a week, and the record ends up being of the hours that were easy to label rather than the hours that actually happened.
@@ -16,6 +18,26 @@ The rest of the app closes the loop between planning and doing:
 - **Insights.** Hours per tag over a day or week, drillable from the root down.
 
 The goal is an honest record of where time goes, built from input that takes about five seconds an hour.
+
+## A quick tour
+
+**Log an hour in five seconds.** Type what you did. The AI files it into your tag tree.
+
+<p align="center"><img src="docs/media/02-log.gif" width="640" alt="Typing 'Reviewed 3 PRs on the payments service' into the 2 PM log, then tags appear: Work, Code review, Payments service"></p>
+
+**From a whiteboard thought to your calendar.** Select a phrase on the board, make it an action, and it lands on Google Calendar.
+
+<p align="center"><img src="docs/media/03-board-to-calendar.gif" width="640" alt="Highlighting 'Renew passport' on a planner note, turning it into an all-day action on Friday, which appears on Google Calendar and is then ticked off"></p>
+
+**Zoom from the week to the detail.** Tags nest, so insights drill from Work to Code review to one service.
+
+<p align="center"><img src="docs/media/04-insights.gif" width="640" alt="Bar chart of hours per tag for the week, drilling into Work, then Code review, then Payments service"></p>
+
+**Made for your phone too.** On a small screen the board becomes a notebook.
+
+<p align="center"><img src="docs/media/05-phone.gif" width="640" alt="A phone notebook: typing 'Book dentist', sending it, and an 'Action added' toast"></p>
+
+These are recordings of the animated scenes on the landing page, not screenshots of real data.
 
 ## Status
 
@@ -52,6 +74,7 @@ app/                 routes, API handlers, metadata images, legal pages
 components/          client UI (HourApp is the main shell)
 lib/                 tags, plan, reminders, Gemini, Google, crypto, Supabase clients
 supabase/migrations  the full schema history, applied in order
+docs/media           README recordings of the landing page scenes
 ```
 
 ## Running it locally
