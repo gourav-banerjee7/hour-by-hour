@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { supabaseBrowser } from "@/lib/supabase/client";
 import {
   UNTAGGED_COLOR, colorOf, ensureLocal, ensurePath, hasLogged, hoursByRoot, indexTags, mergeTags, newId,
@@ -35,9 +35,34 @@ const SYNC_TEXT: Record<SyncState, string> = {
 const OUTBOX_KEY = "hbh_outbox_v2";
 const SYNC_SHORT: Record<SyncState, string> = { local: "Demo", saving: "Saving…", synced: "Synced", error: "Offline" };
 
+const noopSubscribe = () => () => {};
+const GCAL_NOTICE: Record<string, string> = {
+  connected: "Google Calendar is connected.",
+  denied: "Google Calendar was not connected. You can try again in Settings.",
+  error: "Something went wrong connecting Google Calendar. Try again in Settings.",
+  unconfigured: "Google Calendar is not set up on this site yet.",
+};
+
+// Read once on first client render: deep-link params, the Calendar connect result, and cached UI state.
+function readBoot(demo: boolean, userId?: string) {
+  const q = new URLSearchParams(location.search);
+  const g = q.get("gcal");
+  const d = q.get("d"), h = q.get("h");
+  const deep = d && h && /^\d{4}-\d{2}-\d{2}$/.test(d) ? { day: d, hour: Math.min(23, Math.max(0, +h || 0)) } : null;
+  let board = false;
+  let plan: Block[] | null = null;
+  try {
+    // on a phone the open board is a full-screen sheet, so never reopen it by itself
+    board = localStorage.getItem("hbh_board_open") === "1" && !window.matchMedia("(max-width: 720px)").matches;
+    const saved = !demo && userId ? localStorage.getItem(`hbh_plan_v1_${userId}`) : null;
+    if (saved) plan = JSON.parse(saved) as Block[];
+  } catch {}
+  return { notice: g ? GCAL_NOTICE[g] ?? null : null, settings: !!g, deep, board, plan, cleanUrl: !!g || !!deep };
+}
+
 export default function HourApp(props: Props) {
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  // false on the server and during hydration, true after: the app reads localStorage and the clock, so it only renders on the client
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
   if (!mounted) return <div className="fullload"><ClockLoader size={64} label="Loading your hours" /></div>;
   return <Inner {...props} />;
 }
@@ -92,8 +117,9 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const START = 6;
   const seed = useMemo(() => (demo ? seedAll() : null), [demo]);
 
+  const [boot] = useState(() => readBoot(demo, userId));
   const [today, setToday] = useState(() => ymd(new Date()));
-  const [view, setView] = useState(today);
+  const [view, setView] = useState(() => boot.deep?.day ?? today);
   const [entries, setEntries] = useState<Record<string, Entry>>(() => seed?.entries ?? {});
   const [tags, setTags] = useState<Tag[]>(() => seed?.tags ?? []);
   const [profile, setProfile] = useState<Profile>(initialProfile);
@@ -101,16 +127,16 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const [sync, setSync] = useState<SyncState>(demo ? "local" : "synced");
   const [loaded, setLoaded] = useState(demo);
   const [animIn, setAnimIn] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [blocks, setBlocks] = useState<Block[]>(() => seed?.blocks ?? []);
-  const [boardOpen, setBoardOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(boot.settings);
+  const [blocks, setBlocks] = useState<Block[]>(() => seed?.blocks ?? boot.plan ?? []);
+  const [boardOpen, setBoardOpen] = useState(boot.board);
   const [focus, setFocus] = useState<{ id: string; n: number } | null>(null);
   const [minute, setMinute] = useState(() => new Date().getMinutes());
-  const [dialog, setDialog] = useState<{ day: string; hour: number } | null>(null);
+  const [dialog, setDialog] = useState<{ day: string; hour: number } | null>(boot.deep);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [failed, setFailed] = useState<Set<string>>(new Set());
   const [reminders, setReminders] = useState<Reminder[]>(() => seed?.reminders ?? []);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(boot.notice);
   const remindersRef = useRef(reminders);
   const [aiMode, setAiMode] = useState<"ai" | "fallback" | null>(null);
 
@@ -250,10 +276,6 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
       const saved = JSON.parse(localStorage.getItem(OUTBOX_KEY) || "[]") as [string, Pending][];
       saved.forEach(([k, v]) => outbox.current.set(k, v));
     } catch {}
-    try {
-      const saved = localStorage.getItem(PLAN_KEY);
-      if (saved) { const b = JSON.parse(saved) as Block[]; blocksRef.current = b; setBlocks(b); }
-    } catch {}
     const since = addDays(ymd(new Date()), -13);
     Promise.all([
       sb.from("hour_logs").select("day,hour,items").gte("day", since),
@@ -305,23 +327,7 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   useEffect(() => {
     // clean up the old push service worker from earlier versions
     navigator.serviceWorker?.getRegistrations().then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
-    const q = new URLSearchParams(location.search);
-    const g = q.get("gcal");
-    if (g) {
-      const msg: Record<string, string> = {
-        connected: "Google Calendar is connected.",
-        denied: "Google Calendar was not connected. You can try again in Settings.",
-        error: "Something went wrong connecting Google Calendar. Try again in Settings.",
-        unconfigured: "Google Calendar is not set up on this site yet.",
-      };
-      setNotice(msg[g] ?? null);
-      setShowSettings(true);
-      history.replaceState(null, "", "/");
-    }
-    const d = q.get("d"), h = q.get("h");
-    if (d && h && /^\d{4}-\d{2}-\d{2}$/.test(d)) { setView(d); setDialog({ day: d, hour: Math.min(23, Math.max(0, +h || 0)) }); history.replaceState(null, "", "/"); }
-    // on a phone the open board is a full-screen sheet, so never reopen it by itself
-    try { if (localStorage.getItem("hbh_board_open") === "1" && !window.matchMedia("(max-width: 720px)").matches) setBoardOpen(true); } catch {}
+    if (boot.cleanUrl) history.replaceState(null, "", location.pathname);
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (sb && userId && tz && tz !== initialProfile.timezone) {
       sb.from("profiles").update({ timezone: tz }).eq("user_id", userId).then(() => setProfile((p) => ({ ...p, timezone: tz })));
@@ -354,7 +360,6 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
   const isToday = view === today;
   const dayEntries = Object.values(entries).filter((e) => e.day === view && hasLogged(e));
   const logged = dayEntries.filter((e) => hours.includes(e.hour)).length;
-  const pointers = dayEntries.reduce((n, e) => n + e.items.filter((i) => i.text.trim()).length, 0);
   const perRoot = hoursByRoot(idx, dayEntries);
   const C = 2 * Math.PI * 49;
   const offset = animIn ? C * (1 - Math.min(1, logged / hours.length)) : C;
@@ -433,6 +438,8 @@ function Inner({ mode, userId, displayName, initialProfile }: Props) {
     await sb.from("reminders").update(patch).eq("id", r.id);
     if (r.gcal_event_id || (profile.gcal_connected && profile.gcal_sync_all && patch.due_date)) await syncReminder(r.id);
   };
+  // a full navigation on purpose: this API route redirects to Google's consent screen
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   const connectGoogle = () => { location.href = "/api/google/connect"; };
   const disconnectGoogle = async () => {
     await fetch("/api/google/disconnect", { method: "POST" });

@@ -54,7 +54,11 @@ export default function LogDialog(p: Props) {
     document.body.classList.add("noscroll");
     return () => document.body.classList.remove("noscroll");
   }, []);
-  useEffect(() => { setDraft(""); setPicker(null); setAPicker(null); setTimeout(() => draftRef.current?.focus(), 60); }, [p.day, p.hour]);
+  // moving to another hour starts a fresh draft (state is reset during render, not in an effect)
+  const hourKey = `${p.day}-${p.hour}`;
+  const [shownKey, setShownKey] = useState(hourKey);
+  if (shownKey !== hourKey) { setShownKey(hourKey); setDraft(""); setPicker(null); setAPicker(null); }
+  useEffect(() => { const t = setTimeout(() => draftRef.current?.focus(), 60); return () => clearTimeout(t); }, [hourKey]);
 
   const commitDraft = () => {
     const text = draft.trim();

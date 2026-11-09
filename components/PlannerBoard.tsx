@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type TextareaHTMLAttributes } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type TextareaHTMLAttributes } from "react";
 import { INKS, INK_NAMES, newBlockId, nextY, phoneOrder, segments, type Block, type Ink } from "@/lib/plan";
 import type { Reminder } from "@/lib/reminders";
 import ActionsPanel, { type ActionsApi } from "./ActionsPanel";
@@ -66,9 +66,10 @@ export default function PlannerBoard({ blocks, onChange, actions, onToggleAction
   const remove = (id: string) => { onChange(blocks.filter((b) => b.id !== id)); setSelected(null); setEditing(null); };
 
   // jump here from an action ("In plan")
+  const [seenFocus, setSeenFocus] = useState<typeof focus>(null);
+  if (focus !== seenFocus) { setSeenFocus(focus); if (focus) setFlash(focus.id); }
   useEffect(() => {
     if (!focus) return;
-    setFlash(focus.id);
     const t = setTimeout(() => { document.getElementById("note-" + focus.id)?.scrollIntoView({ block: "center", behavior: "smooth" }); }, 120);
     const t2 = setTimeout(() => setFlash(null), 2200);
     return () => { clearTimeout(t); clearTimeout(t2); };

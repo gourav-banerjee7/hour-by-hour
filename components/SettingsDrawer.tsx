@@ -24,6 +24,8 @@ export default function SettingsDrawer({ open, onClose, demo, sb, name, gcal, on
     return () => { document.removeEventListener("keydown", k); document.body.classList.remove("noscroll"); };
   }, [open, onClose]);
   if (!open) return null;
+  // a full reload on purpose, so no signed-in state survives in memory
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   const signOut = async () => { await sb?.auth.signOut(); location.href = "/"; };
   return (
     <div className="scrim drawerscrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
